@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from fast_gnn_benchmark.metrics.base_metrics import (
     MRR,
+    BinaryAccuracy,
     BinaryDistribution,
     HitRate,
     OptimizedF1Score,
@@ -61,6 +62,7 @@ class MetricType(Enum):
 
     HIT_RATE = "hit_rate"
     MEAN_RECIPROCAL_RANK = "mean_reciprocal_rank"
+    BINARY_ACCURACY = "binary_accuracy"
 
 
 class MetricParameters(BaseModel):
@@ -118,7 +120,8 @@ class MetricParameters(BaseModel):
                 return HitRate(**self.parameters)
             case MetricType.MEAN_RECIPROCAL_RANK:
                 return MRR(**self.parameters)
-
+            case MetricType.BINARY_ACCURACY:
+                return BinaryAccuracy(**self.parameters)
             case _:
                 raise ValueError(f"Invalid metric type: {self.metric_type}")
 

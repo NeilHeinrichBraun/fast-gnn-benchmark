@@ -73,6 +73,8 @@ model_parameters:
       display_name: hit_rate@100
       parameters:
         k: 100
+    - metric_type: binary_accuracy
+      display_name: accuracy
     # - metric_type: mean_reciprocal_rank
     #   display_name: mrr
 

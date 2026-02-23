@@ -313,3 +313,30 @@ class MRR(OptimizedMetric):
     def reset(self) -> None:
         self.pos_scores = self.pos_scores.new_empty((0,))
         self.neg_scores = self.neg_scores.new_empty((0,))
+
+
+class BinaryAccuracy(OptimizedMetric):
+    def __init__(self) -> None:
+        super().__init__()
+        self.register_buffer("correct_predictions", torch.tensor(0.0))
+        self.register_buffer("total_samples", torch.tensor(0.0))
+        self.reset()
+
+    @staticmethod
+    def get_accuracy(correct_predictions: torch.Tensor, total_samples: torch.Tensor) -> torch.Tensor:
+        return correct_predictions / total_samples.clamp(min=1)
+
+    def update(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:  # pyright: ignore[reportIncompatibleMethodOverride]
+        with torch.no_grad():
+            correct_predictions = (pred > 0.5) == target  # noqa: PLR2004
+            self.correct_predictions += correct_predictions.sum()
+            self.total_samples += pred.shape[0]
+
+            return self.get_accuracy(self.correct_predictions, self.total_samples)  # type: ignore
+
+    def compute(self) -> torch.Tensor:
+        return self.get_accuracy(self.correct_predictions, self.total_samples)
+
+    def reset(self) -> None:
+        self.correct_predictions.zero_()  # type: ignore
+        self.total_samples.zero_()  # type: ignore
