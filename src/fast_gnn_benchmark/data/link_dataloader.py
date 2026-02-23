@@ -78,26 +78,56 @@ class LinkLoader:
 
         return positive_edges, non_negative_edges_ids
 
+    def number_of_negative_candidates(self, iteration_index: int) -> int:
+        """
+        At the first iteration, we start with a large number of negative candidates and then decrease it as we get more negative edges.
+        The expected number of negative candidates to get the desired number of negative edges is given by the formula:
+        negative_per_batch / (1 - non_negative_proportion). A factor 4 is used to avoid doing a second iteration.
+        The number 20 candidates for other iterations is an arbitrary number since there should not be many missing negative edges.
+        """
+        non_negative_proportion = self.non_negative_edges_ids.shape[0] / (self.num_nodes * self.num_nodes)
+        if iteration_index == 0:
+            return int(self.negative_per_batch / (1 - non_negative_proportion * 4))
+
+        return 20
+
     def rejection_sampling_negative_edges(self) -> torch.Tensor:
+        """
+        Rejection sampling negative edges.
+        Basically, we sample negative edges randomly and then reject the ones that are already in the positive edges.
+        To do that, we first attribute a unique id function of each edge which is simply min(src, dst) * num_nodes + max(src, dst).
+
+        Then, we can use a binary search to find the index of the edge in the non_negative_edges_ids tensor.
+        If the edge is in the non_negative_edges_ids tensor, it is a positive edge and we reject it.
+        Otherwise, we add it to the candidates tensor.
+
+        We repeat this process for a maximum of max_rejection_sampling_iterations times.
+
+        """
+
         candidates = torch.empty((2, 0), dtype=torch.int64, device=self.device)
 
-        for _ in range(self.max_rejection_sampling_iterations):
-            negative_candidates = torch.randint(0, self.num_nodes, (2, self.negative_per_batch), device=self.device)
-            src = torch.minimum(negative_candidates[0, :], negative_candidates[1, :])
-            dst = torch.maximum(negative_candidates[0, :], negative_candidates[1, :])
+        for sampling_iteration_index in range(self.max_rejection_sampling_iterations):
+            number_of_negative_candidates = self.number_of_negative_candidates(sampling_iteration_index)
+            potential_negative_candidates = torch.randint(
+                0, self.num_nodes, (2, number_of_negative_candidates), device=self.device
+            )
+            src = torch.minimum(potential_negative_candidates[0, :], potential_negative_candidates[1, :])
+            dst = torch.maximum(potential_negative_candidates[0, :], potential_negative_candidates[1, :])
 
             candidate_edges_ids = src * self.num_nodes + dst
 
-            idx = torch.searchsorted(self.non_negative_edges_ids, candidate_edges_ids)
-            is_positive = torch.logical_and(
-                idx < len(self.non_negative_edges_ids),
-                self.non_negative_edges_ids[idx] == candidate_edges_ids,
+            non_negative_edges_ids_index = torch.searchsorted(self.non_negative_edges_ids, candidate_edges_ids)
+            is_positive_edge = torch.logical_and(
+                non_negative_edges_ids_index < len(self.non_negative_edges_ids),
+                self.non_negative_edges_ids[non_negative_edges_ids_index] == candidate_edges_ids,
             )
 
-            candidates = torch.cat([candidates, negative_candidates[:, ~is_positive]], dim=1)
+            candidates = torch.cat([candidates, potential_negative_candidates[:, ~is_positive_edge]], dim=1)
 
             if candidates.shape[1] >= self.negative_per_batch:
                 return candidates[:, : self.negative_per_batch]
+
         return candidates[:, : self.negative_per_batch]
 
     def __len__(self) -> int:
