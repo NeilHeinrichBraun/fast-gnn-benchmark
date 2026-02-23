@@ -1,3 +1,5 @@
+from typing import Any
+
 import torch
 from torch_geometric import utils
 from torch_geometric.data import Data
@@ -65,6 +67,10 @@ def print_data_properties_node_classification(data: Data, show_all: bool = False
     assert isinstance(data.y, torch.Tensor), "Data must have y"
     assert isinstance(data.x, torch.Tensor), "Data must have x"
 
+    print()
+    print("Node classification dataset properties:")
+    print()
+
     print("Splits:")
     print("n_train:", data.train_mask.sum().item())  # type: ignore
     print("n_val:", data.val_mask.sum().item())  # type: ignore
@@ -84,10 +90,22 @@ def print_data_properties_node_classification(data: Data, show_all: bool = False
         print(f"Is undirected: {data.is_undirected()}")
 
 
-def print_data_properties_link_prediction(data: Data) -> None:
+def print_data_properties_link_prediction(dataset: Any) -> None:
+    data = dataset[0]
+    print()
+    print("Link prediction dataset properties:")
+    print()
+
     print("Number of nodes:", data.x.shape[0])  # type: ignore
     print("Number of train edges (with repetition):", data.edge_index.shape[1])  # type: ignore
     print("Number of features:", data.x.shape[1])  # type: ignore
+    print()
+
+    print("Train edges:", dataset.split["train"]["edge"].shape[0])
+    print("Valid edges:", dataset.split["valid"]["edge"].shape[0])
+    print("Negative valid edges:", dataset.split["valid"]["edge_neg"].shape[0])
+    print("Test edges:", dataset.split["test"]["edge"].shape[0])
+    print("Negative test edges:", dataset.split["test"]["edge_neg"].shape[0])
 
 
 def remove_duplicate_edges(edges: torch.Tensor) -> torch.Tensor:

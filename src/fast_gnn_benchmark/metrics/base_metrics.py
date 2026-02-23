@@ -25,7 +25,7 @@ class BinaryDistribution(torchmetrics.Metric):
 
 class OptimizedMetric(torch.nn.Module, ABC):
     @abstractmethod
-    def update(self, pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    def update(self, *args: torch.Tensor, **kwargs: torch.Tensor) -> torch.Tensor:
         pass
 
     @abstractmethod
@@ -87,7 +87,7 @@ class OptimizedMultiClassAccuracy(OptimizedMetric):
     def get_accuracy(correct_predictions: torch.Tensor, total_samples: torch.Tensor) -> torch.Tensor:
         return correct_predictions / total_samples.clamp(min=1)
 
-    def update(self, pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    def update(self, pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:  # pyright: ignore[reportIncompatibleMethodOverride]
         with torch.no_grad():
             pred = pred.argmax(dim=1)
             batch_correct_predictions = ((pred == target) * mask).sum()
@@ -184,3 +184,132 @@ class OptimizedRecall(OptimizedStatScores):
 
     def compute(self) -> torch.Tensor:
         return self.get_recall(self.tp, self.fn)
+
+
+# -------------------- Link prediction metrics --------------------
+
+
+class HitRate(OptimizedMetric):
+    def __init__(self, k: int) -> None:
+        super().__init__()
+        if k <= 0:
+            raise ValueError(f"k must be > 0, got {k}")
+        self.k = k
+
+        self.register_buffer("pos_scores", torch.empty(0, dtype=torch.float32))
+        self.register_buffer("neg_scores", torch.empty(0, dtype=torch.float32))
+        self.reset()
+
+    def update(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:  # pyright: ignore[reportIncompatibleMethodOverride]
+        """
+        pred: logits/scores for each sample
+        target: tensor containing 0.0 or 1.0 labels (same first-dim length as pred)
+        """
+        with torch.no_grad():
+            # target could be float/bool/int; interpret >0.5 as positive
+            pos_mask = target > 0.5  # noqa: PLR2004
+            neg_mask = ~pos_mask
+
+            pos_batch = pred[pos_mask]
+            neg_batch = pred[neg_mask]
+
+            # Append to buffers
+            if pos_batch.numel() > 0:
+                self.pos_scores = torch.cat([self.pos_scores, pos_batch.detach()])
+            if neg_batch.numel() > 0:
+                self.neg_scores = torch.cat([self.neg_scores, neg_batch.detach()])
+
+            # Return current hit rate computed on this batch
+            return self._hits_at_k(pos_batch, neg_batch, self.k)
+
+    @staticmethod
+    def _hits_at_k(y_pred_pos: torch.Tensor, y_pred_neg: torch.Tensor, k: int) -> torch.Tensor:
+        """
+        Vectorized version of your eval_hits, returning a scalar tensor.
+        """
+        # If no positive samples, define as 0 to avoid NaNs (you can choose another convention)
+        if y_pred_pos.numel() == 0:
+            return torch.tensor(0.0, device=y_pred_neg.device if y_pred_neg.is_cuda else y_pred_pos.device)
+
+        # If not enough negatives, hits@k is 1.0 per your reference function
+        if y_pred_neg.numel() < k:
+            return torch.tensor(1.0, device=y_pred_pos.device)
+
+        kth_score_in_neg = torch.topk(y_pred_neg, k).values[-1]
+        return (y_pred_pos > kth_score_in_neg).float().mean()
+
+    def compute(self) -> torch.Tensor:
+        with torch.no_grad():
+            return self._hits_at_k(self.pos_scores, self.neg_scores, self.k)
+
+    def reset(self) -> None:
+        # "Empty" the buffers while keeping device/dtype consistent
+        self.pos_scores = self.pos_scores.new_empty((0,))
+        self.neg_scores = self.neg_scores.new_empty((0,))
+
+
+class MRR(OptimizedMetric):
+    """
+    Accumulates positive and negative scores across updates, then computes
+    mean reciprocal rank using the same logic as eval_mrr.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.register_buffer("pos_scores", torch.empty(0, dtype=torch.float32))
+        self.register_buffer("neg_scores", torch.empty(0, dtype=torch.float32))
+        self.reset()
+
+    def update(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:  # pyright: ignore[reportIncompatibleMethodOverride]
+        """
+        pred: scores/logits for each sample (1D tensor)
+        target: tensor containing 0.0 or 1.0 labels (same length as pred)
+        """
+        with torch.no_grad():
+            pos_mask = target > 0.5  # noqa: PLR2004
+            neg_mask = ~pos_mask
+
+            pos_batch = pred[pos_mask].detach()
+            neg_batch = pred[neg_mask].detach()
+
+            if pos_batch.numel() > 0:
+                self.pos_scores = torch.cat([self.pos_scores, pos_batch])
+            if neg_batch.numel() > 0:
+                self.neg_scores = torch.cat([self.neg_scores, neg_batch])
+
+            # Return batch MRR (computed on this batch)
+            return self._mrr(pos_batch, neg_batch)
+
+    @staticmethod
+    def _mrr(y_pred_pos: torch.Tensor, y_pred_neg: torch.Tensor) -> torch.Tensor:
+        """
+        Port of eval_mrr, but returns a scalar tensor.
+        Assumes y_pred_pos are the scores for positive edges and y_pred_neg for negatives.
+        """
+        # Match "no positives" edge case handling similar to HitRate (avoid NaNs)
+        if y_pred_pos.numel() == 0:
+            device = y_pred_neg.device if y_pred_neg.is_cuda else y_pred_pos.device
+            return torch.tensor(0.0, device=device)
+
+        # eval_mrr assumes y_pred_neg is 2D (num_pos, num_neg) so it can rank per positive.
+        # With the same buffering scheme as HitRate (a flat list of negatives),
+        # we treat *all* accumulated negatives as the comparison set for each positive.
+        y_pred_pos_2d = y_pred_pos.view(-1, 1)  # [P, 1]
+        y_pred_neg_2d = y_pred_neg.view(1, -1)  # [1, N] -> broadcast to [P, N]
+
+        print(y_pred_neg_2d.shape, y_pred_pos_2d.shape)
+
+        optimistic_rank = (y_pred_neg_2d > y_pred_pos_2d).sum(dim=1)
+        pessimistic_rank = (y_pred_neg_2d >= y_pred_pos_2d).sum(dim=1)
+        ranking_list = 0.5 * (optimistic_rank + pessimistic_rank) + 1.0
+        mrr_list = 1.0 / ranking_list.to(torch.float32)
+
+        return mrr_list.mean()
+
+    def compute(self) -> torch.Tensor:
+        with torch.no_grad():
+            return self._mrr(self.pos_scores, self.neg_scores)
+
+    def reset(self) -> None:
+        self.pos_scores = self.pos_scores.new_empty((0,))
+        self.neg_scores = self.neg_scores.new_empty((0,))

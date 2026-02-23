@@ -13,6 +13,8 @@ class FixLinkPropPredDataset(PygLinkPropPredDataset):
         with torch.serialization.safe_globals([DataEdgeAttr, DataTensorAttr, GlobalStorage]):
             super().__init__(name, root, transform, pre_transform, meta_dict)
 
+        self.split = self.get_edge_split()
+
     def get_edge_split(self, split_type=None):
         if split_type is None:
             split_type = self.meta_info["split"]

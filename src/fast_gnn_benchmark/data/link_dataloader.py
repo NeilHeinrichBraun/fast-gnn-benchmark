@@ -43,17 +43,17 @@ class LinkLoader:
                 )
 
             case SplitType.VAL:
-                splits = dataset.get_edge_split()
-                positive_edges = splits["valid"]["edge"].T
-                negative_edges = splits["valid"]["edge_neg"].T
+                splits = dataset.split["valid"]
+                positive_edges = splits["edge"].T
+                negative_edges = splits["edge_neg"].T
                 self.target_edges = torch.cat([positive_edges, negative_edges], dim=1).to(self.device)
                 self.labels = torch.cat(
                     [torch.ones(positive_edges.shape[1]), torch.zeros(negative_edges.shape[1])], dim=0
                 ).to(self.device)
             case SplitType.TEST:
-                splits = dataset.get_edge_split()
-                positive_edges = splits["test"]["edge"].T
-                negative_edges = splits["test"]["edge_neg"].T
+                splits = dataset.split["test"]
+                positive_edges = splits["edge"].T
+                negative_edges = splits["edge_neg"].T
                 self.target_edges = torch.cat([positive_edges, negative_edges], dim=1).to(self.device)
                 self.labels = torch.cat(
                     [torch.ones(positive_edges.shape[1]), torch.zeros(negative_edges.shape[1])], dim=0
@@ -64,7 +64,7 @@ class LinkLoader:
     def cannonize_positive_edges(
         self, dataset: Any, remove_self_loops: bool = True
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        positive_edges = dataset.get_edge_split()["train"]["edge"].T  # [2, n]
+        positive_edges = dataset.split["train"]["edge"].T  # [2, n]
         positive_edges = torch.sort(positive_edges, dim=0).values
         if remove_self_loops:
             non_negative_edges = torch.cat([positive_edges, torch.arange(self.num_nodes).repeat(2, 1)], dim=1)

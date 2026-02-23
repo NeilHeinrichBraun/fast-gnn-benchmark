@@ -73,6 +73,9 @@ def get_trainer_parameters_from_config(
         config = override_nested_dict(config, get_global_config())
 
     if override_dict is not None:
+        if override_dict.get("wandb_logger_parameters") is not None and config.get("wandb_logger_parameters") is None:
+            print("wandb_logger_parameters are ignored because of a conflict with the global config")
+            override_dict["wandb_logger_parameters"] = None
         config = override_nested_dict(config, override_dict)
 
     return TrainerParameters.model_validate(config)

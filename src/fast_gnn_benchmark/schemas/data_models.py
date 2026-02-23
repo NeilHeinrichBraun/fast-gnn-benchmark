@@ -230,7 +230,7 @@ class DataParameters(BaseModel):
         ]:
             print_data_properties_node_classification(dataset[0])  # type: ignore
         else:
-            print_data_properties_link_prediction(dataset[0])  # type: ignore
+            print_data_properties_link_prediction(dataset)  # type: ignore
 
         return dataset
 

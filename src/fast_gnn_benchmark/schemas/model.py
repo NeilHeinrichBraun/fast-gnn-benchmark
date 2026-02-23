@@ -10,7 +10,9 @@ from lightning.pytorch.loggers import WandbLogger
 from pydantic import BaseModel, Field, field_validator
 
 from fast_gnn_benchmark.metrics.base_metrics import (
+    MRR,
     BinaryDistribution,
+    HitRate,
     OptimizedF1Score,
     OptimizedMetric,
     OptimizedMultiClassAccuracy,
@@ -57,6 +59,9 @@ class MetricType(Enum):
     OPTIMIZED_PRECISION = "optimized_precision"
     OPTIMIZED_RECALL = "optimized_recall"
 
+    HIT_RATE = "hit_rate"
+    MEAN_RECIPROCAL_RANK = "mean_reciprocal_rank"
+
 
 class MetricParameters(BaseModel):
     metric_type: MetricType
@@ -97,6 +102,7 @@ class MetricParameters(BaseModel):
                         "ROC AUC metric must have a task parameter among ['binary', 'multiclass', 'multilabel']"
                     )
                 return torchmetrics.AUROC(**self.parameters)
+
             case MetricType.OPTIMIZED_ACCURACY:
                 return OptimizedMultiClassAccuracy(**self.parameters)
             case MetricType.OPTIMIZED_F1:
@@ -105,6 +111,14 @@ class MetricParameters(BaseModel):
                 return OptimizedPrecision(**self.parameters)
             case MetricType.OPTIMIZED_RECALL:
                 return OptimizedRecall(**self.parameters)
+
+            case MetricType.HIT_RATE:
+                if "k" not in self.parameters:
+                    raise ValueError("Hit Rate metric must have a 'k' parameter")
+                return HitRate(**self.parameters)
+            case MetricType.MEAN_RECIPROCAL_RANK:
+                return MRR(**self.parameters)
+
             case _:
                 raise ValueError(f"Invalid metric type: {self.metric_type}")
 

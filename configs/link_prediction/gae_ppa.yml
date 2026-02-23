@@ -56,15 +56,25 @@ model_parameters:
   loss:
       loss_type: bce_with_logits_loss
 
-  metrics: []
-    # - metric_type: optimized_accuracy
-    #   display_name: accuracy
-    # - metric_type: optimized_f1
-    #   display_name: f1
-    # - metric_type: optimized_precision
-    #   display_name: precision
-    # - metric_type: optimized_recall
-    #   display_name: recall
+  metrics:
+    - metric_type: hit_rate
+      display_name: hit_rate@1
+      parameters:
+        k: 1
+    - metric_type: hit_rate
+      display_name: hit_rate@3
+      parameters:
+        k: 3
+    - metric_type: hit_rate
+      display_name: hit_rate@10
+      parameters:
+        k: 10
+    - metric_type: hit_rate
+      display_name: hit_rate@100
+      parameters:
+        k: 100
+    # - metric_type: mean_reciprocal_rank
+    #   display_name: mrr
 
   optimizer:
     optimizer_type: adam
