@@ -97,15 +97,19 @@ class LinkLoader:
         Basically, we sample negative edges randomly and then reject the ones that are already in the positive edges.
         To do that, we first attribute a unique id function of each edge which is simply min(src, dst) * num_nodes + max(src, dst).
 
-        Then, we can use a binary search to find the index of the edge in the non_negative_edges_ids tensor.
+        We then sample a number of negative candidates randomly.
+        We use a binary search to find the index of the candidate edges in the non_negative_edges_ids tensor.
         If the edge is in the non_negative_edges_ids tensor, it is a positive edge and we reject it.
         Otherwise, we add it to the candidates tensor.
 
         We repeat this process for a maximum of max_rejection_sampling_iterations times.
 
+        Note that we do not ensure that the negative edges are unique since the check would be too expensive.
+
         """
 
-        candidates = torch.empty((2, 0), dtype=torch.int64, device=self.device)
+        candidate_list: list[torch.Tensor] = []
+        total_collected = 0
 
         for sampling_iteration_index in range(self.max_rejection_sampling_iterations):
             number_of_negative_candidates = self.number_of_negative_candidates(sampling_iteration_index)
@@ -123,11 +127,15 @@ class LinkLoader:
                 self.non_negative_edges_ids[non_negative_edges_ids_index] == candidate_edges_ids,
             )
 
-            candidates = torch.cat([candidates, potential_negative_candidates[:, ~is_positive_edge]], dim=1)
+            neg = potential_negative_candidates[:, ~is_positive_edge]
+            candidate_list.append(neg)
+            total_collected += neg.shape[1]
 
-            if candidates.shape[1] >= self.negative_per_batch:
+            if total_collected >= self.negative_per_batch:
+                candidates = torch.cat(candidate_list, dim=1)
                 return candidates[:, : self.negative_per_batch]
 
+        candidates = torch.cat(candidate_list, dim=1)
         return candidates[:, : self.negative_per_batch]
 
     def __len__(self) -> int:
@@ -149,8 +157,8 @@ class LinkLoader:
                 target_edges = torch.cat([positive_edges, negative_edges], dim=1)
                 labels = torch.cat(
                     [
-                        torch.ones(positive_edges.shape[1]),
-                        torch.zeros(negative_edges.shape[1]),
+                        torch.ones(positive_edges.shape[1], device=self.device),
+                        torch.zeros(negative_edges.shape[1], device=self.device),
                     ],
                     dim=0,
                 )
@@ -165,9 +173,12 @@ class LinkLoader:
                         y=labels,
                     )
                 else:
-                    data = self.data.clone()
-                    data.target_edges = target_edges
-                    data.y = labels
+                    data = Data(
+                        x=self.data.x,
+                        edge_index=self.data.edge_index,
+                        target_edges=target_edges,
+                        y=labels,
+                    )
 
                 data = self.to_sparse_tensor(data)
                 data.edge_index = data.adj_t
@@ -179,9 +190,12 @@ class LinkLoader:
                 end_idx = start_idx + self.batch_size
                 target_edges = self.target_edges[:, start_idx:end_idx]
                 labels = self.labels[start_idx:end_idx]
-                data = self.data.clone()
-                data.target_edges = target_edges
-                data.y = labels
+                data = Data(
+                    x=self.data.x,
+                    edge_index=self.data.edge_index,
+                    target_edges=target_edges,
+                    y=labels,
+                )
 
                 data = self.to_sparse_tensor(data)
                 data.edge_index = data.adj_t

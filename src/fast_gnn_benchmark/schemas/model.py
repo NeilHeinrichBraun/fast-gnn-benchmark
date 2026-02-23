@@ -118,6 +118,7 @@ class MetricParameters(BaseModel):
                 if "k" not in self.parameters:
                     raise ValueError("Hit Rate metric must have a 'k' parameter")
                 return HitRate(**self.parameters)
+
             case MetricType.MEAN_RECIPROCAL_RANK:
                 return MRR(**self.parameters)
             case MetricType.BINARY_ACCURACY:

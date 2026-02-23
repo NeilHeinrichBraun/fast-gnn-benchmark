@@ -67,7 +67,7 @@ class LinkPredictionModel(BaseGNN[LinkPredictionModelParameters]):
             on_step=True,
             on_epoch=True,
             batch_size=batch.y.shape[0],  # type: ignore
-            prog_bar=True,
+            prog_bar=False,
         )
 
         return loss
@@ -76,7 +76,7 @@ class LinkPredictionModel(BaseGNN[LinkPredictionModelParameters]):
         pred = self.model(batch)
         loss = self.loss(pred, batch.y)
         batch_metrics = self.val_metrics(pred, batch.y)
-        self.log_dict({"val/loss": loss, **batch_metrics}, on_epoch=True, batch_size=batch.y.shape[0], prog_bar=True)  # type: ignore
+        self.log_dict({"val/loss": loss, **batch_metrics}, on_epoch=True, batch_size=batch.y.shape[0], prog_bar=False)  # type: ignore
 
         return loss
 
@@ -86,6 +86,6 @@ class LinkPredictionModel(BaseGNN[LinkPredictionModelParameters]):
         loss = self.loss(pred, batch.y)
 
         batch_metrics = self.test_metrics(pred, batch.y)
-        self.log_dict({"test/loss": loss, **batch_metrics}, on_epoch=True, batch_size=batch.y.shape[0], prog_bar=True)  # type: ignore
+        self.log_dict({"test/loss": loss, **batch_metrics}, on_epoch=True, batch_size=batch.y.shape[0], prog_bar=False)  # type: ignore
 
         return loss

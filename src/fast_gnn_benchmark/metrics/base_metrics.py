@@ -196,8 +196,9 @@ class HitRate(OptimizedMetric):
             raise ValueError(f"k must be > 0, got {k}")
         self.k = k
 
-        self.register_buffer("pos_scores", torch.empty(0, dtype=torch.float32))
-        self.register_buffer("neg_scores", torch.empty(0, dtype=torch.float32))
+        # persistent=False so these accumulating buffers are not saved in checkpoints
+        self.register_buffer("pos_scores", torch.empty(0, dtype=torch.float32), persistent=False)
+        self.register_buffer("neg_scores", torch.empty(0, dtype=torch.float32), persistent=False)
         self.reset()
 
     def update(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:  # pyright: ignore[reportIncompatibleMethodOverride]
@@ -256,8 +257,9 @@ class MRR(OptimizedMetric):
 
     def __init__(self) -> None:
         super().__init__()
-        self.register_buffer("pos_scores", torch.empty(0, dtype=torch.float32))
-        self.register_buffer("neg_scores", torch.empty(0, dtype=torch.float32))
+        # persistent=False so these accumulating buffers are not saved in checkpoints
+        self.register_buffer("pos_scores", torch.empty(0, dtype=torch.float32), persistent=False)
+        self.register_buffer("neg_scores", torch.empty(0, dtype=torch.float32), persistent=False)
         self.reset()
 
     def update(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:  # pyright: ignore[reportIncompatibleMethodOverride]
