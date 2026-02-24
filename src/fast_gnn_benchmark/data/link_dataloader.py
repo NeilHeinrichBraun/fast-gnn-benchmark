@@ -31,8 +31,7 @@ class LinkLoader:
         self.mask_loss_edges = mask_loss_edges
         self.split_type = split_type
         self.max_rejection_sampling_iterations = max_rejection_sampling_iterations
-        self.negative_per_batch = int(batch_size * negative_sampling_ratio)
-        self.positive_per_batch = batch_size - self.negative_per_batch
+        self.positive_per_batch = batch_size - int(batch_size * negative_sampling_ratio)
 
         self.to_sparse_tensor = ToSparseTensor()
 
@@ -78,7 +77,7 @@ class LinkLoader:
 
         return positive_edges, non_negative_edges_ids
 
-    def number_of_negative_candidates(self, iteration_index: int) -> int:
+    def number_of_negative_candidates(self, iteration_index: int, number_of_samples: int) -> int:
         """
         At the first iteration, we start with a large number of negative candidates and then decrease it as we get more negative edges.
         The expected number of negative candidates to get the desired number of negative edges is given by the formula:
@@ -87,11 +86,11 @@ class LinkLoader:
         """
         non_negative_proportion = self.non_negative_edges_ids.shape[0] / (self.num_nodes * self.num_nodes)
         if iteration_index == 0:
-            return int(self.negative_per_batch / (1 - non_negative_proportion * 4))
+            return int(number_of_samples / (1 - non_negative_proportion * 4))
 
         return 20
 
-    def rejection_sampling_negative_edges(self) -> torch.Tensor:
+    def rejection_sampling_negative_edges(self, number_of_samples: int) -> torch.Tensor:
         """
         Rejection sampling negative edges.
         Basically, we sample negative edges randomly and then reject the ones that are already in the positive edges.
@@ -112,7 +111,9 @@ class LinkLoader:
         total_collected = 0
 
         for sampling_iteration_index in range(self.max_rejection_sampling_iterations):
-            number_of_negative_candidates = self.number_of_negative_candidates(sampling_iteration_index)
+            number_of_negative_candidates = self.number_of_negative_candidates(
+                sampling_iteration_index, number_of_samples
+            )
             potential_negative_candidates = torch.randint(
                 0, self.num_nodes, (2, number_of_negative_candidates), device=self.device
             )
@@ -131,12 +132,12 @@ class LinkLoader:
             candidate_list.append(neg)
             total_collected += neg.shape[1]
 
-            if total_collected >= self.negative_per_batch:
+            if total_collected >= number_of_samples:
                 candidates = torch.cat(candidate_list, dim=1)
-                return candidates[:, : self.negative_per_batch]
+                return candidates[:, :number_of_samples]
 
         candidates = torch.cat(candidate_list, dim=1)
-        return candidates[:, : self.negative_per_batch]
+        return candidates[:, :number_of_samples]
 
     def __len__(self) -> int:
         if self.split_type == SplitType.TRAIN:
@@ -153,7 +154,7 @@ class LinkLoader:
                 end_idx = start_idx + self.positive_per_batch
 
                 positive_edges = self.positive_edges[:, start_idx:end_idx]
-                negative_edges = self.rejection_sampling_negative_edges()
+                negative_edges = self.rejection_sampling_negative_edges(positive_edges.shape[1])
                 target_edges = torch.cat([positive_edges, negative_edges], dim=1)
                 labels = torch.cat(
                     [
