@@ -279,6 +279,14 @@ ArchitectureParametersChoices = Annotated[
 ]
 
 
+class EmbedderParameters(BaseModel):
+    use_embedding: bool
+    embedding_dim: int
+    embedding_only: bool
+    initializer: Literal["orthogonal", "uniform", "ones", "normal"]
+    num_nodes: int
+
+
 class BaseModelParameters(BaseModel):
     architecture_parameters: ArchitectureParametersChoices
     loss: LossParameters
@@ -321,6 +329,11 @@ class LinkPredictorParameters(BaseModel):
 class LinkPredictionModelParameters(BaseModelParameters):
     task_type: Literal["link_prediction"] = "link_prediction"
     link_predictor_parameters: LinkPredictorParameters
+    embedder_parameters: EmbedderParameters = Field(
+        default_factory=lambda: EmbedderParameters(
+            use_embedding=False, embedding_dim=0, embedding_only=False, initializer="orthogonal", num_nodes=0
+        )
+    )
 
 
 # -------------------- Trainer parameters --------------------

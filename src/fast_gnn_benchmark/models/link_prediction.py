@@ -3,9 +3,11 @@ from torch_geometric.data import Data
 
 from fast_gnn_benchmark.models.backbones import load_backbone
 from fast_gnn_benchmark.models.base_model import BaseGNN
+from fast_gnn_benchmark.models.embedder import load_embedder
 from fast_gnn_benchmark.models.link_prediction_heads import CosineSimilarityClassifier, Hadamard_MLPPredictor
 from fast_gnn_benchmark.schemas.model import (
     ArchitectureParametersChoices,
+    EmbedderParameters,
     LinkPredictionModelParameters,
     LinkPredictorParameters,
     LinkPredictorType,
@@ -14,12 +16,16 @@ from fast_gnn_benchmark.schemas.model import (
 
 class LinkPredictorBase(torch.nn.Module):
     def __init__(
-        self, architecture_parameters: ArchitectureParametersChoices, link_predictor_parameters: LinkPredictorParameters
+        self,
+        embedder_parameters: EmbedderParameters,
+        architecture_parameters: ArchitectureParametersChoices,
+        link_predictor_parameters: LinkPredictorParameters,
     ):
         super().__init__()
+        self.embedder_parameters = embedder_parameters
         self.architecture_parameters = architecture_parameters
         self.link_predictor_parameters = link_predictor_parameters
-
+        self.embedder = load_embedder(embedder_parameters)
         self.backbone = load_backbone(architecture_parameters)
         self.classifier = self.load_classifier()
 
@@ -43,7 +49,7 @@ class LinkPredictorBase(torch.nn.Module):
     def forward(self, data: Data) -> torch.Tensor:
         x = data.x
         edges = data.edge_index
-
+        x = self.embedder(x)
         x = self.backbone(x, edges)
 
         return self.classifier(x, x, data.target_edges)
@@ -55,7 +61,9 @@ class LinkPredictionModel(BaseGNN[LinkPredictionModelParameters]):
 
     def load_model(self) -> torch.nn.Module:
         return LinkPredictorBase(
-            self.model_parameters.architecture_parameters, self.model_parameters.link_predictor_parameters
+            self.model_parameters.embedder_parameters,
+            self.model_parameters.architecture_parameters,
+            self.model_parameters.link_predictor_parameters,
         )
 
     def training_step(self, batch: Data, batch_idx: int) -> torch.Tensor:  # noqa: ARG002

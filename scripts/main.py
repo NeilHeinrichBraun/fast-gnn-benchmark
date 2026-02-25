@@ -63,4 +63,8 @@ if __name__ == "__main__":
         override_dict["wandb_logger_parameters"]["tags"] = [args.tag]
 
     file_path = args.config_file
+
+    print(file_path)
+    import os 
+    print(os.listdir(os.path.dirname(file_path)))
     main(file_path, override_dict)

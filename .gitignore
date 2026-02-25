@@ -7,7 +7,7 @@ coverage/
 datasets/
 wandb/
 lightning_logs/
-gnn_experiments/
+link_prediction_experiments/
 # IDE
 # pycharm settings
 .idea/
