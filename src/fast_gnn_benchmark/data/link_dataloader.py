@@ -141,9 +141,9 @@ class LinkLoader:
 
     def __len__(self) -> int:
         if self.split_type == SplitType.TRAIN:
-            return self.positive_edges.shape[1] // self.positive_per_batch
+            return max(self.positive_edges.shape[1] // self.positive_per_batch, 1)
 
-        return self.target_edges.shape[1] // self.batch_size
+        return max(self.target_edges.shape[1] // self.batch_size, 1)
 
     def __iter__(self) -> Iterator[Data]:
         return self.get_iterator()
