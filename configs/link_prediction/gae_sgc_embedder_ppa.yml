@@ -46,19 +46,24 @@ model_parameters:
     num_nodes: *num_nodes
 
   architecture_parameters:
-      architecture_type: sgc
+      architecture_type: sgc2
       input_dim: *input_dim
       hidden_dim: 128
       output_dim: 128
-      num_layers: 5
+      num_layers: 2
+      dropout: 0.8
+      use_input_projection: false
+      use_output_projection: false
+      use_residual: false
+      use_layer_norm: false
 
   link_predictor_parameters:
     link_predictor_type: hadamard_mlp
     parameters:
-      dropout: 0.1
+      dropout: 0.6
       num_layers: 5
-      use_residual: true
-      use_layer_norm: false
+      use_residual: false
+      use_layer_norm: true
 
   loss:
       loss_type: bce_with_logits_loss
@@ -81,7 +86,7 @@ model_parameters:
     optimizer_type: adam
     parameters:
       lr: 0.001
-      weight_decay: 0.00005
+      weight_decay: 0
 
 callbacks: 
     # - callback_type: early_stopping
@@ -105,5 +110,6 @@ compilation_parameters:
 
 trainer_config:
   max_time: 00:01:00:00
+  # max_epochs: 200
   log_every_n_steps: 1
 

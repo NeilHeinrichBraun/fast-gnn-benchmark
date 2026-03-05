@@ -2,7 +2,7 @@
 #SBATCH --job-name=run_config
 #SBATCH --output=slurm_logs/%x_%j.out
 #SBATCH --error=slurm_logs/%x_%j.err
-#SBATCH --partition=audible,A100,L40S,A40 # audible,A100,L40S,A40
+#SBATCH --partition=audible,A100,L40S # audible,A100,L40S,A40
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=32
 #SBATCH --mem=32G

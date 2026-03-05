@@ -160,6 +160,7 @@ class ArchitectureType(Enum):
     SAGE = "sage"
     GAT = "gat"
     SGC = "sgc"
+    SGC2 = "sgc2"  # SGC with Dropout, Layer Norm and Skip Connections
     GCNII = "gcnii"
     MLP = "mlp"
     MLP_ADJACENCY = "mlp_adjacency"
@@ -175,7 +176,12 @@ class ArchitectureParameters(BaseModel):
 
 
 class GNNParameters(ArchitectureParameters):
-    architecture_type: Literal[ArchitectureType.GCN, ArchitectureType.SAGE, ArchitectureType.GAT]
+    architecture_type: Literal[
+        ArchitectureType.GCN,
+        ArchitectureType.SAGE,
+        ArchitectureType.GAT,
+        ArchitectureType.SGC2,
+    ]
     num_layers: int
     dropout: float = 0.0
     use_input_projection: bool = False

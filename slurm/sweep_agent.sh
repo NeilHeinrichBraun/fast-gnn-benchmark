@@ -2,7 +2,7 @@
 #SBATCH --job-name=sweep
 #SBATCH --output=slurm_logs/%x_%j.out
 #SBATCH --error=slurm_logs/%x_%j.err
-#SBATCH --partition=A100,L40S,A40,audible # A100,L40S,A40,audible
+#SBATCH --partition=L40S,A100,audible,A40 # A100,L40S,A40,audible
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=32
 #SBATCH --mem=32G

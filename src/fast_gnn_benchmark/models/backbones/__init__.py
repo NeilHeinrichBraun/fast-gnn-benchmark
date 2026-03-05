@@ -21,7 +21,13 @@ from fast_gnn_benchmark.schemas.model import (
 
 def load_backbone(architecture_parameters: ArchitectureParametersChoices) -> torch.nn.Module:  # noqa: PLR0911
     match architecture_parameters.architecture_type:
-        case ArchitectureType.GCN | ArchitectureType.SAGE | ArchitectureType.GAT | ArchitectureType.SGC:
+        case (
+            ArchitectureType.GCN
+            | ArchitectureType.SAGE
+            | ArchitectureType.GAT
+            | ArchitectureType.SGC
+            | ArchitectureType.SGC2
+        ):
             assert isinstance(architecture_parameters, GNNParameters | SGCParameters)
             return load_gnn(architecture_parameters)
 

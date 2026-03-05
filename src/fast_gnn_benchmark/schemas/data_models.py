@@ -153,19 +153,19 @@ class DataParameters(BaseModel):
                 dataset = random_split_dataset(dataset)
 
             case DatasetType.OGBN_PRODUCTS:
-                dataset = OGBNDataset(root="./datasets/ogb/", name="ogbn-products", transform=transforms)
+                dataset = OGBNDataset(root="./datasets/ogbn/", name="ogbn-products", transform=transforms)
 
             case DatasetType.OGBN_ARXIV:
-                dataset = OGBNDataset(root="./datasets/ogb/", name="ogbn-arxiv", transform=transforms)
+                dataset = OGBNDataset(root="./datasets/ogbn/", name="ogbn-arxiv", transform=transforms)
 
             case DatasetType.OGBN_PAPERS100M:
-                dataset = OGBNDataset(root="./datasets/ogb/", name="ogbn-papers100M", transform=transforms)
+                dataset = OGBNDataset(root="./datasets/ogbn/", name="ogbn-papers100M", transform=transforms)
 
             case DatasetType.OGBN_PAPERS100M_ON_DISK:
-                dataset = OGBNDatasetOnDisk(root="./datasets/ogb/", name="ogbn-papers100M", transform=transforms)
+                dataset = OGBNDatasetOnDisk(root="./datasets/ogbn/", name="ogbn-papers100M", transform=transforms)
 
             case DatasetType.OGBN_PAPERS100M_ON_RAM:
-                dataset = OGBNDatasetOnRAM(root="./datasets/ogb/", name="ogbn-papers100M", transform=transforms)
+                dataset = OGBNDatasetOnRAM(root="./datasets/ogbn/", name="ogbn-papers100M", transform=transforms)
 
             case DatasetType.POKEC:
                 dataset = PokecDataset(root="./datasets/pokec", transform=transforms)

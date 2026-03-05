@@ -66,7 +66,7 @@ class GNNStack(torch.nn.Module):
 
     def get_layer_type(self, architecture_type: ArchitectureType) -> type[torch.nn.Module]:
         match architecture_type:
-            case ArchitectureType.GCN:
+            case ArchitectureType.GCN | ArchitectureType.SGC2:
                 return GCNConv
             case ArchitectureType.SAGE:
                 return SAGEConv
@@ -92,7 +92,8 @@ class GNNStack(torch.nn.Module):
                 x = self.batch_norms[layer_index](x)
 
             if (self.architecture_parameters.use_output_projection) or (layer_index != len(self.conv_layers) - 1):
-                x = F.relu(x)
+                if self.architecture_parameters.architecture_type != ArchitectureType.SGC2:
+                    x = F.relu(x)
                 x = F.dropout(x, p=self.architecture_parameters.dropout, training=self.training)
 
         if self.architecture_parameters.use_output_projection:
@@ -208,7 +209,7 @@ class GAT(torch.nn.Module):
 
 def load_gnn(architecture_parameters: ArchitectureParametersChoices) -> torch.nn.Module:
     match architecture_parameters.architecture_type:
-        case ArchitectureType.GCN | ArchitectureType.SAGE:
+        case ArchitectureType.GCN | ArchitectureType.SAGE | ArchitectureType.SGC2:
             return GNNStack(architecture_parameters)
         case ArchitectureType.GAT:
             return GAT(architecture_parameters)
