@@ -7,8 +7,11 @@ from fast_gnn_benchmark.data.dataset.ogbl import FixLinkPropPredDataset
 from fast_gnn_benchmark.data.dataset.ogbn import OGBNDataset
 from fast_gnn_benchmark.data.dataset.ogbn_on_disk import OGBNDatasetOnDisk, OGBNDatasetOnRAM
 from fast_gnn_benchmark.data.dataset.pokec import PokecDataset
+from fast_gnn_benchmark.data.dataset.amazon_products import AmazonDataset
+from fast_gnn_benchmark.data.dataset.seal import SEALDataset
 from fast_gnn_benchmark.data.dataset.split_strategies import random_split_dataset, resplit_planetoid_dataset
 from fast_gnn_benchmark.data.link_dataloader import LinkLoader
+from fast_gnn_benchmark.data.seal_dataloader import SEALDataLoader
 from fast_gnn_benchmark.data.node_dataloaders import (
     BaseDataLoader,
     ClusterLoaderWrapper,
@@ -44,6 +47,7 @@ DatasetTypeChoices = (
     | OGBNDatasetOnDisk
     | OGBNDatasetOnRAM
     | Amazon
+    | AmazonDataset
     | Coauthor
     | FixLinkPropPredDataset
 )
@@ -60,6 +64,7 @@ DataLoaderTypeChoices = (
     | RandomNodeLoaderWithReplacement
     | DropEdgeLoader
     | LinkLoader
+    | SEALDataLoader
 )
 
 
@@ -170,6 +175,9 @@ class DataParameters(BaseModel):
             case DatasetType.POKEC:
                 dataset = PokecDataset(root="./datasets/pokec", transform=transforms)
 
+            case DatasetType.AMAZON_PRODUCTS:
+                dataset = AmazonDataset(root="./datasets/amazon")
+
             case DatasetType.OGBL_PPA:
                 dataset = FixLinkPropPredDataset(root="./datasets/ogbl/", name="ogbl-ppa", transform=transforms)
                 dataset.data.x = dataset.data.x.float()
@@ -227,6 +235,7 @@ class DataParameters(BaseModel):
             DatasetType.OGBL_WIKIKG2,
             DatasetType.OGBL_BIOKG,
             DatasetType.OGBL_VESSEL,
+            DatasetType.AMAZON_PRODUCTS,
         ]:
             print_data_properties_node_classification(dataset[0])  # type: ignore
         else:
@@ -346,6 +355,29 @@ class DataParameters(BaseModel):
                     negative_sampling_ratio=data_loader_parameters.negative_sampling_ratio,
                     on_device=data_loader_parameters.on_device,
                     split_type=split_type,
+                    use_val_edges_as_input=data_loader_parameters.use_val_edges_as_input,
+                )
+
+            case DataLoaderType.SEAL_LOADER:
+                seal_split = {"train": "train", "val": "valid", "test": "test"}[split_type.value]
+                seal_dataset = SEALDataset(
+                    dataset,
+                    split=seal_split,
+                    num_hops=data_loader_parameters.num_hops,
+                    node_labeling=data_loader_parameters.node_labeling,
+                    use_features=data_loader_parameters.use_features,
+                    max_nodes_per_hop=data_loader_parameters.max_nodes_per_hop,
+                    root=data_loader_parameters.cache_dir,
+                    num_train_samples=data_loader_parameters.num_train_samples,
+                    use_cpp_extension=data_loader_parameters.use_cpp_extension,
+                )
+                return SEALDataLoader(
+                    seal_dataset,
+                    batch_size=data_loader_parameters.batch_size,
+                    split_type=split_type,
+                    shuffle=data_loader_parameters.shuffle,
+                    num_workers=data_loader_parameters.num_workers,
+                    pin_memory=data_loader_parameters.pin_memory,
                 )
 
             case _:

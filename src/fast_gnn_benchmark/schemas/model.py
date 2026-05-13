@@ -167,6 +167,7 @@ class ArchitectureType(Enum):
     PMLP = "pmlp"
     SGFORMER = "sgformer"
     POLYNORMER = "polynormer"
+    DGCNN = "dgcnn"
 
 
 class ArchitectureParameters(BaseModel):
@@ -269,6 +270,28 @@ class PolyNormerParameters(ArchitectureParameters):
     pre_norm: bool = False
     qk_shared: bool = False
 
+class DGCNNParameters(ArchitectureParameters):
+    architecture_type: Literal[ArchitectureType.DGCNN] = ArchitectureType.DGCNN
+    num_layers: int
+    k: int = 30
+    inner_gnn_type: Literal[ArchitectureType.GCN, ArchitectureType.SAGE, ArchitectureType.GAT]
+    conv1d_channels: list[int]
+    conv1d_kernel_size: int = 5
+    mlp_hidden_dim: int = 128
+    dropout: float = 0.5
+
+    @field_validator("inner_gnn_type", mode="before")
+    @classmethod
+    def convert_inner_gnn_type(cls, v):
+        if isinstance(v, str):
+            try:
+                return ArchitectureType(v)
+            except ValueError:
+                raise ValueError(
+                    f"Invalid inner_gnn_type: {v}. Must be one of: ['gcn', 'sage', 'gat']"
+                ) from None
+        return v
+
 
 # -------------------- Base model --------------------
 
@@ -280,7 +303,8 @@ ArchitectureParametersChoices = Annotated[
     | PolyNormerParameters
     | SGCParameters
     | PMLPParameters
-    | GCNIIParameters,
+    | GCNIIParameters
+    | DGCNNParameters,
     Field(discriminator="architecture_type"),
 ]
 
@@ -328,12 +352,13 @@ class LinkPredictorType(Enum):
 
 
 class LinkPredictorParameters(BaseModel):
-    link_predictor_type: LinkPredictorType
+    link_predictor_type: LinkPredictorType | None
     parameters: dict[str, Any]
 
 
 class LinkPredictionModelParameters(BaseModelParameters):
     task_type: Literal["link_prediction"] = "link_prediction"
+    task_subtype: Literal["whole_graph", "sub_graph"] = "whole_graph"
     link_predictor_parameters: LinkPredictorParameters
     embedder_parameters: EmbedderParameters = Field(
         default_factory=lambda: EmbedderParameters(

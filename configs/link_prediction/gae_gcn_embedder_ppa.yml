@@ -98,8 +98,7 @@ callbacks:
         save_top_k: 1
         filename: best
 
-wandb_logger_parameters:
-  reinit: true
+wandb_logger_parameters: null
 
 compilation_parameters:
   use_compiled_torch: false

@@ -299,8 +299,6 @@ class MRR(OptimizedMetric):
         y_pred_pos_2d = y_pred_pos.view(-1, 1)  # [P, 1]
         y_pred_neg_2d = y_pred_neg.view(1, -1)  # [1, N] -> broadcast to [P, N]
 
-        print(y_pred_neg_2d.shape, y_pred_pos_2d.shape)
-
         optimistic_rank = (y_pred_neg_2d > y_pred_pos_2d).sum(dim=1)
         pessimistic_rank = (y_pred_neg_2d >= y_pred_pos_2d).sum(dim=1)
         ranking_list = 0.5 * (optimistic_rank + pessimistic_rank) + 1.0
@@ -330,7 +328,7 @@ class BinaryAccuracy(OptimizedMetric):
 
     def update(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:  # pyright: ignore[reportIncompatibleMethodOverride]
         with torch.no_grad():
-            correct_predictions = (pred > 0.5) == target  # noqa: PLR2004
+            correct_predictions = (pred.sigmoid() > 0.5) == target  # noqa: PLR2004
             self.correct_predictions += correct_predictions.sum()
             self.total_samples += pred.shape[0]
 

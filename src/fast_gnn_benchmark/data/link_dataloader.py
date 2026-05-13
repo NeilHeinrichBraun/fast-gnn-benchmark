@@ -19,12 +19,15 @@ class LinkLoader:
         negative_sampling_ratio: float = 0.5,
         on_device=True,
         split_type: SplitType = SplitType.TRAIN,
+        use_val_edges_as_input: bool = False,
     ):
         if on_device:
-            self.device = torch.accelerator.current_accelerator() or torch.device("cpu")
+            self.device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
         else:
             self.device = torch.device("cpu")
 
+        self._use_sparse = True
+        
         self.data = dataset.data.to(self.device)
         self.num_nodes = dataset.num_nodes
         self.batch_size = batch_size
@@ -33,7 +36,9 @@ class LinkLoader:
         self.max_rejection_sampling_iterations = max_rejection_sampling_iterations
         self.positive_per_batch = batch_size - int(batch_size * negative_sampling_ratio)
 
-        self.to_sparse_tensor = ToSparseTensor()
+        self.use_val_edges_as_input = use_val_edges_as_input
+
+        self.to_sparse_tensor = ToSparseTensor() if self._use_sparse else None
 
         match split_type:
             case SplitType.TRAIN:
@@ -57,6 +62,12 @@ class LinkLoader:
                 self.labels = torch.cat(
                     [torch.ones(positive_edges.shape[1]), torch.zeros(negative_edges.shape[1])], dim=0
                 ).to(self.device)
+                if use_val_edges_as_input:
+                    val_edges = dataset.split["valid"]["edge"].T.to(self.device)
+                    self.data = Data(
+                        x=self.data.x,
+                        edge_index=torch.cat([self.data.edge_index, to_undirected(val_edges)], dim=1),
+                    )
             case _:
                 raise ValueError(f"Invalid split type: {split_type}")
 
@@ -139,6 +150,13 @@ class LinkLoader:
         candidates = torch.cat(candidate_list, dim=1)
         return candidates[:, :number_of_samples]
 
+    def _maybe_to_sparse(self, data: Data) -> Data:
+        """Convert edge_index to SparseTensor (CSR) format, unless running on MPS."""
+        if self._use_sparse:
+            data = self.to_sparse_tensor(data)
+            data.edge_index = data.adj_t
+        return data
+    
     def __len__(self) -> int:
         if self.split_type == SplitType.TRAIN:
             return max(self.positive_edges.shape[1] // self.positive_per_batch, 1)
@@ -181,8 +199,7 @@ class LinkLoader:
                         y=labels,
                     )
 
-                data = self.to_sparse_tensor(data)
-                data.edge_index = data.adj_t
+                data = self._maybe_to_sparse(data)
 
                 yield data
 
@@ -198,7 +215,6 @@ class LinkLoader:
                     y=labels,
                 )
 
-                data = self.to_sparse_tensor(data)
-                data.edge_index = data.adj_t
+                data = self._maybe_to_sparse(data)
 
                 yield data

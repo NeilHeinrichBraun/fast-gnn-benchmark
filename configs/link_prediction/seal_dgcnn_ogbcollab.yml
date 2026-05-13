@@ -1,0 +1,126 @@
+seed: 42
+
+data_parameters:
+  dataset_type: ogbl-collab
+  to_undirected: false
+  add_self_loops_and_remove_duplicate_edges: false
+  remove_duplicate_edges: false
+
+  train_data_loader_parameters:
+    data_loader_type: seal_loader
+    batch_size: 1024
+    num_hops: 1
+    node_labeling: drnl
+    use_features: true
+    max_nodes_per_hop: null
+    num_workers: 0
+    pin_memory: false
+    shuffle: true
+    cache_dir: ./datasets/seal_cache/ogbl-collab
+    num_train_samples: null
+    use_cpp_extension: true
+  val_data_loader_parameters:
+    data_loader_type: seal_loader
+    batch_size: 4096
+    num_hops: 1
+    node_labeling: drnl
+    use_features: true
+    max_nodes_per_hop: null
+    num_workers: 0
+    pin_memory: false
+    shuffle: false
+    cache_dir: ./datasets/seal_cache/ogbl-collab
+    num_train_samples: null
+    use_cpp_extension: true
+  test_data_loader_parameters:
+    data_loader_type: seal_loader
+    batch_size: 4096
+    num_hops: 1
+    node_labeling: drnl
+    use_features: true
+    max_nodes_per_hop: null
+    num_workers: 0
+    pin_memory: false
+    shuffle: false
+    cache_dir: ./datasets/seal_cache/ogbl-collab
+    num_train_samples: null
+    use_cpp_extension: true
+
+model_parameters:
+  task_type: link_prediction
+  task_subtype: sub_graph
+
+  architecture_parameters:
+    architecture_type: dgcnn
+    input_dim: 140  # TODO: probe first — should be (max_z + 1) + 128 (COLLAB word2vec dim). Typically ~136-144.
+    hidden_dim: 128
+    output_dim: 1
+    num_layers: 3
+    k: 30
+    inner_gnn_type: gcn
+    conv1d_channels: [16, 32]
+    conv1d_kernel_size: 5
+    mlp_hidden_dim: 128
+    dropout: 0.5
+
+  link_predictor_parameters:
+    link_predictor_type: null
+    parameters: {}
+
+  loss:
+    loss_type: bce_with_logits_loss
+
+  metrics:
+    - metric_type: binary_accuracy
+      display_name: accuracy
+    - metric_type: roc_auc
+      display_name: auc
+      parameters:
+        task: binary
+    - metric_type: hit_rate
+      display_name: hit_rate@50
+      parameters:
+        k: 50
+    - metric_type: hit_rate
+      display_name: hit_rate@100
+      parameters:
+        k: 100
+
+  optimizer:
+    optimizer_type: adam
+    parameters:
+      lr: 0.001
+      weight_decay: 0.0005
+
+callbacks:
+  - callback_type: early_stopping
+    parameters:
+      monitor: val/hit_rate@50
+      patience: 10
+      mode: max
+  - callback_type: model_checkpoint
+    parameters:
+      monitor: val/hit_rate@50
+      mode: max
+      save_top_k: 1
+      filename: best
+
+wandb_logger_parameters:
+  entity: "neil01-"
+  project: "fast_gnn_benchmark"
+  reinit: true
+  tags:
+    - seal
+    - dgcnn
+    - ogbl-collab
+    - baseline
+
+compilation_parameters:
+  use_compiled_torch: false
+  full_graph: false
+
+trainer_config:
+  max_epochs: 50
+  log_every_n_steps: 50
+
+

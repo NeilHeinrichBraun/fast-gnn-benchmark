@@ -11,6 +11,7 @@ from lightning.pytorch.utilities.compile import _maybe_unwrap_optimized
 
 from fast_gnn_benchmark.models.link_prediction import LinkPredictionModel
 from fast_gnn_benchmark.models.node_classification import NodeClassificationModel
+from fast_gnn_benchmark.models.seal import SEALLinkPredictionModel
 from fast_gnn_benchmark.schemas.data_models import DataLoaderTypeChoices
 from fast_gnn_benchmark.schemas.model import (
     LinkPredictionModelParameters,
@@ -82,7 +83,7 @@ def get_trainer_parameters_from_config(
 
 
 def _configure_and_compile_model(
-    model: NodeClassificationModel | LinkPredictionModel,
+    model: NodeClassificationModel | LinkPredictionModel | SEALLinkPredictionModel,
     use_compiled_torch: bool,
     full_graph: bool,
 ) -> NodeClassificationModel | LinkPredictionModel:
@@ -98,14 +99,19 @@ def _configure_and_compile_model(
     return model  # type: ignore
 
 
-def get_model(trainer_parameters: TrainerParameters) -> NodeClassificationModel | LinkPredictionModel:
+def get_model(
+    trainer_parameters: TrainerParameters,
+) -> NodeClassificationModel | LinkPredictionModel | SEALLinkPredictionModel:
     match trainer_parameters.model_parameters.task_type:
         case "node_classification":
             assert isinstance(trainer_parameters.model_parameters, NodeClassificationModelParameters)
             model = NodeClassificationModel(trainer_parameters.model_parameters)
         case "link_prediction":
             assert isinstance(trainer_parameters.model_parameters, LinkPredictionModelParameters)
-            model = LinkPredictionModel(trainer_parameters.model_parameters)
+            if trainer_parameters.model_parameters.task_subtype == "sub_graph":
+                model = SEALLinkPredictionModel(trainer_parameters.model_parameters)
+            else:
+                model = LinkPredictionModel(trainer_parameters.model_parameters)
 
         case _:
             raise ValueError(f"Invalid task type: {trainer_parameters.model_parameters.task_type}")
@@ -117,13 +123,17 @@ def get_model(trainer_parameters: TrainerParameters) -> NodeClassificationModel 
     )
 
 
-def load_model_from_checkpoint(checkpoint_path: str) -> NodeClassificationModel | LinkPredictionModel:
+def load_model_from_checkpoint(
+    checkpoint_path: str,
+) -> NodeClassificationModel | LinkPredictionModel | SEALLinkPredictionModel:
     checkpoint = torch.load(checkpoint_path, weights_only=False)
     model_parameters = checkpoint["hyper_parameters"]["model_parameters"]
     match model_parameters.task_type:
         case "node_classification":
             return NodeClassificationModel.load_from_checkpoint(checkpoint_path, weights_only=False)
         case "link_prediction":
+            if getattr(model_parameters, "task_subtype", "whole_graph") == "sub_graph":
+                return SEALLinkPredictionModel.load_from_checkpoint(checkpoint_path, weights_only=False)
             return LinkPredictionModel.load_from_checkpoint(checkpoint_path, weights_only=False)
 
         case _:
@@ -132,9 +142,9 @@ def load_model_from_checkpoint(checkpoint_path: str) -> NodeClassificationModel 
 
 def get_model_to_test(
     callbacks: list[L.Callback],
-    last_model: NodeClassificationModel | LinkPredictionModel,
+    last_model: NodeClassificationModel | LinkPredictionModel | SEALLinkPredictionModel,
     trainer_parameters: TrainerParameters,
-) -> NodeClassificationModel | LinkPredictionModel:
+) -> NodeClassificationModel | LinkPredictionModel | SEALLinkPredictionModel:
     for callback in callbacks:
         if isinstance(callback, ModelCheckpoint):
             best_model_path = callback.best_model_path
@@ -153,13 +163,14 @@ def get_model_to_test(
 
 
 def get_device() -> str:
-    if torch.backends.mps.is_available():
-        return "mps"
     if torch.cuda.is_available():
         torch.set_float32_matmul_precision("medium")
         print("Tensor Core optimization enabled (medium precision)")
 
         return "cuda"
+
+    if torch.backends.mps.is_available():
+        return "mps"
 
     return "cpu"
 
@@ -199,7 +210,7 @@ def get_callbacks(trainer_parameters: TrainerParameters) -> list[L.Callback]:
 
 
 def check_test_batch(
-    model: NodeClassificationModel | LinkPredictionModel,
+    model: NodeClassificationModel | LinkPredictionModel | SEALLinkPredictionModel,
     test_loader: DataLoaderTypeChoices,
     device: str,
 ) -> None:
@@ -209,7 +220,7 @@ def check_test_batch(
         model.to(device)
         model.eval()
         for batch in test_loader:
-            batch.to(device)
+            batch = batch.to(device)
             model.test_step(batch, 0)  # type: ignore
             break
 

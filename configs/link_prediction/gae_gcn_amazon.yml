@@ -1,0 +1,90 @@
+parameters:
+  data_dim: &data_dim 4096
+  num_nodes: &num_nodes 139998
+
+
+seed: 42
+
+data_parameters:
+  dataset_type: amazon-products
+  to_undirected: false
+  add_self_loops_and_remove_duplicate_edges: false
+  remove_duplicate_edges: false
+  train_data_loader_parameters:
+    data_loader_type: link_loader
+    batch_size: 16384
+    mask_loss_edges: false
+    max_rejection_sampling_iterations: 2
+    negative_sampling_ratio: 0.5
+    on_device: true
+  val_data_loader_parameters:
+    data_loader_type: link_loader
+    batch_size: 32768
+    negative_sampling_ratio: 0.5
+    on_device: true
+  test_data_loader_parameters:
+    data_loader_type: link_loader
+    batch_size: 32768
+    negative_sampling_ratio: 0.5
+    on_device: true
+    use_val_edges_as_input: true
+
+model_parameters:
+  task_type: link_prediction
+  architecture_parameters:
+      architecture_type: gcn
+      input_dim: *data_dim
+      hidden_dim: 128
+      output_dim: 32
+      num_layers: 2
+      dropout: 0.4
+      use_input_projection: true
+      use_output_projection: false
+      use_residual: false
+      use_layer_norm: false
+
+  link_predictor_parameters:
+    link_predictor_type: cosine_similarity
+    parameters: {}
+
+  loss:
+      loss_type: bce_with_logits_loss
+
+  metrics:
+    - metric_type: hit_rate
+      display_name: hit_rate@50
+      parameters:
+        k: 50
+    - metric_type: hit_rate
+      display_name: hit_rate@100
+      parameters:
+        k: 100
+    - metric_type: binary_accuracy
+      display_name: accuracy
+
+  optimizer:
+    optimizer_type: adam
+    parameters:
+      lr: 0.0005
+      weight_decay: 0
+
+callbacks:
+    - callback_type: early_stopping
+      parameters:
+        monitor: val/accuracy
+        patience: 100
+        mode: "max"
+
+wandb_logger_parameters:
+  entity: "neil01-"
+  project: "fast_gnn_benchmark"
+  reinit: true
+
+compilation_parameters:
+  use_compiled_torch: false
+  full_graph: false
+
+trainer_config:
+  max_epochs: 1000
+  log_every_n_steps: 10
+  gradient_clip_val: 1.0

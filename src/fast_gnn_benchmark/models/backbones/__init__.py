@@ -1,5 +1,6 @@
 import torch
 
+from fast_gnn_benchmark.models.backbones.dgcnn import DGCNN
 from fast_gnn_benchmark.models.backbones.gcn2 import GCNII
 from fast_gnn_benchmark.models.backbones.gnn import load_gnn
 from fast_gnn_benchmark.models.backbones.mlp import MLP, PMLP, MLPAdjacency
@@ -8,6 +9,7 @@ from fast_gnn_benchmark.models.backbones.sgformer import SGFormer
 from fast_gnn_benchmark.schemas.model import (
     ArchitectureParametersChoices,
     ArchitectureType,
+    DGCNNParameters,
     GCNIIParameters,
     GNNParameters,
     MLPAdjacencyParameters,
@@ -54,6 +56,10 @@ def load_backbone(architecture_parameters: ArchitectureParametersChoices) -> tor
         case ArchitectureType.POLYNORMER:
             assert isinstance(architecture_parameters, PolyNormerParameters)
             return PolyNormer(architecture_parameters)
+
+        case ArchitectureType.DGCNN:
+            assert isinstance(architecture_parameters, DGCNNParameters)
+            return DGCNN(architecture_parameters)
 
         case _:
             raise ValueError(f"Invalid architecture type: {architecture_parameters.architecture_type}")

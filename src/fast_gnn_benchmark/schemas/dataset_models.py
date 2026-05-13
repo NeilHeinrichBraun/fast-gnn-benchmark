@@ -50,6 +50,7 @@ class DatasetType(Enum):
     OGBL_WIKIKG2 = "ogbl-wikikg2"
     OGBL_BIOKG = "ogbl-biokg"
     OGBL_VESSEL = "ogbl-vessel"
+    AMAZON_PRODUCTS = "amazon-products"
 
 
 class DataLoaderType(Enum):
@@ -64,6 +65,7 @@ class DataLoaderType(Enum):
     PPR_NODE_LOADER = "ppr_node_loader"
     DROP_EDGE_LOADER = "drop_edge_loader"
     LINK_LOADER = "link_loader"
+    SEAL_LOADER = "seal_loader"
 
 
 class DataLoaderParameters(BaseModel):
@@ -156,6 +158,22 @@ class LinkLoaderParameters(DataLoaderParameters):
     negative_sampling_ratio: float = 0.5
     on_device: bool = True
 
+    use_val_edges_as_input: bool = False
+
+class SEALLoaderParameters(DataLoaderParameters):
+    data_loader_type: Literal[DataLoaderType.SEAL_LOADER] = DataLoaderType.SEAL_LOADER
+    num_hops: int = 2
+    batch_size: int
+    node_labeling: Literal["drnl", "zero"] = "drnl"
+    use_features: bool = True
+    max_nodes_per_hop: int | None = None
+    num_workers: int = 0
+    pin_memory: bool = False
+    shuffle: bool = True
+    cache_dir: str | None = None
+    num_train_samples: int | None = None
+    use_cpp_extension: bool = True
+
 
 class DropEdgeLoaderParameters(DataLoaderParameters):
     data_loader_type: Literal[DataLoaderType.DROP_EDGE_LOADER] = DataLoaderType.DROP_EDGE_LOADER
@@ -175,6 +193,7 @@ DataLoaderParametersChoices = Annotated[
     | PPRNodeLoaderParameters
     | RandomNodeLoaderWithReplacementParameters
     | DropEdgeLoaderParameters
-    | LinkLoaderParameters,
+    | LinkLoaderParameters
+    | SEALLoaderParameters,
     Field(discriminator="data_loader_type"),
 ]
