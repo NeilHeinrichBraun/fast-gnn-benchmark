@@ -1,15 +1,42 @@
+import subprocess
+import os
+import sys
+
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True,max_split_size_mb:512"
+
+BUNDLE_ROOT = "/Workspace/Users/neil.braun@mirakl.com/.bundle/fast-gnn-benchmark/dev/files"
+
+subprocess.run(["pip", "install", BUNDLE_ROOT], check=True)
+
+os.chdir("/tmp")
+
+try:
+    from pyspark.dbutils import DBUtils
+    from pyspark import SparkContext
+    dbutils = DBUtils(SparkContext.getOrCreate())
+    wandb_key = dbutils.secrets.get(scope="nbraun", key="wandb_api_key")
+    os.environ["WANDB_API_KEY"] = wandb_key
+    os.environ["WANDB_DIR"] = "/tmp"
+    os.environ["WANDB_CACHE_DIR"] = "/tmp"
+    os.environ["WANDB_DATA_DIR"] = "/tmp"
+    os.environ["WANDB_CONFIG_DIR"] = "/tmp"
+
+    import wandb
+    wandb.login(key=wandb_key)
+    print("wandb logged in successfully")
+except Exception as e:
+    print(f"Could not configure wandb: {e}")
+
 import argparse
 from pprint import pprint
 from typing import Any
 
 import yaml
 
-import wandb
 from fast_gnn_benchmark.trainer import get_global_config
 
 
 def arg_parser() -> argparse.Namespace:
-    global_config = get_global_config()
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--config-file",
@@ -18,8 +45,8 @@ def arg_parser() -> argparse.Namespace:
         required=True,
         help="Path to the sweep config file. For example: configs/sweep/example.yml",
     )
-    parser.add_argument("--project", "-p", type=str, default=global_config["wandb_logger_parameters"]["project"])
-    parser.add_argument("--entity", "-e", type=str, default=global_config["wandb_logger_parameters"]["entity"])
+    parser.add_argument("--project", "-p", type=str, required=True)
+    parser.add_argument("--entity", "-e", type=str, required=True)
     return parser.parse_args()
 
 
@@ -44,10 +71,10 @@ if __name__ == "__main__":
 
     print()
 
-    print("Run the following command to launch the sweep:")
-    print(f"uv run wandb agent {entity}/{project}/{sweep_id}")
-
+    print("Now, we can launch the sweep:")
+    subprocess.run([sys.executable, "-m", "wandb", "agent", f"{entity}/{project}/{sweep_id}"])
+    
     print()
 
     print("To stop the sweep, run the following command:")
-    print(f"uv run wandb sweep --stop {entity}/{project}/{sweep_id}")
+    print(f"{sys.executable} -m wandb sweep --stop {entity}/{project}/{sweep_id}")

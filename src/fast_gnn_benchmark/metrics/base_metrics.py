@@ -216,9 +216,9 @@ class HitRate(OptimizedMetric):
 
             # Append to buffers
             if pos_batch.numel() > 0:
-                self.pos_scores = torch.cat([self.pos_scores, pos_batch.detach()])
+                self.pos_scores = torch.cat([self.pos_scores.cpu(), pos_batch.detach().cpu()])
             if neg_batch.numel() > 0:
-                self.neg_scores = torch.cat([self.neg_scores, neg_batch.detach()])
+                self.neg_scores = torch.cat([self.neg_scores.cpu(), neg_batch.detach().cpu()])
 
             # Return current hit rate computed on this batch
             return self._hits_at_k(pos_batch, neg_batch, self.k)
@@ -313,6 +313,359 @@ class MRR(OptimizedMetric):
     def reset(self) -> None:
         self.pos_scores = self.pos_scores.new_empty((0,))
         self.neg_scores = self.neg_scores.new_empty((0,))
+
+
+class BinaryAccuracy_trigger(OptimizedMetric):
+    def __init__(self, threshold: float = 0.0) -> None:
+        super().__init__()
+        self.threshold = threshold
+        self.register_buffer("pos_scores", torch.empty(0, dtype=torch.float32), persistent=False)
+        self.register_buffer("neg_scores", torch.empty(0, dtype=torch.float32), persistent=False)
+        self.register_buffer("pos_group_ids", torch.empty(0, dtype=torch.long), persistent=False)
+        self.register_buffer("neg_group_ids", torch.empty(0, dtype=torch.long), persistent=False)
+        self.reset()
+
+    def update(self, pred: torch.Tensor, target: torch.Tensor, group_ids: torch.Tensor) -> torch.Tensor:  # pyright: ignore[reportIncompatibleMethodOverride]
+        with torch.no_grad():
+            pos_mask = target > 0.5  # noqa: PLR2004
+            neg_mask = ~pos_mask
+
+            pos_batch = pred[pos_mask].detach()
+            neg_batch = pred[neg_mask].detach()
+            pos_group_ids_batch = group_ids[pos_mask].detach()
+            neg_group_ids_batch = group_ids[neg_mask].detach()
+
+            if pos_batch.numel() > 0:
+                self.pos_scores = torch.cat([self.pos_scores, pos_batch])
+                self.pos_group_ids = torch.cat([self.pos_group_ids, pos_group_ids_batch])
+            if neg_batch.numel() > 0:
+                self.neg_scores = torch.cat([self.neg_scores, neg_batch])
+                self.neg_group_ids = torch.cat([self.neg_group_ids, neg_group_ids_batch])
+
+            return self._accuracy(pos_batch, neg_batch, pos_group_ids_batch, neg_group_ids_batch)
+
+    def _accuracy(
+        self,
+        y_pred_pos: torch.Tensor,
+        y_pred_neg: torch.Tensor,
+        pos_group_ids: torch.Tensor,
+        neg_group_ids: torch.Tensor,
+    ) -> torch.Tensor:
+        """Threshold-based accuracy (TP + TN) / total, computed per trigger then averaged over triggers."""
+        device = y_pred_pos.device if y_pred_pos.numel() > 0 else y_pred_neg.device
+        all_gids = torch.cat([pos_group_ids, neg_group_ids])
+        if all_gids.numel() == 0:
+            return torch.tensor(0.0, device=device)
+
+        _, inverse = all_gids.unique(return_inverse=True)
+        pos_compact = inverse[: pos_group_ids.shape[0]]
+        neg_compact = inverse[pos_group_ids.shape[0] :]
+        num_groups = inverse.max().item() + 1
+
+        tp = (y_pred_pos > self.threshold).float()   # positives predicted positive
+        tn = (y_pred_neg <= self.threshold).float()  # negatives predicted negative
+
+        correct = torch.zeros(num_groups, device=device)
+        correct.scatter_add_(0, pos_compact, tp)
+        correct.scatter_add_(0, neg_compact, tn)
+
+        total = torch.zeros(num_groups, device=device)
+        total.scatter_add_(0, pos_compact, torch.ones_like(tp))
+        total.scatter_add_(0, neg_compact, torch.ones_like(tn))
+
+        return (correct / total.clamp(min=1)).mean()
+
+    def compute(self) -> torch.Tensor:
+        with torch.no_grad():
+            return self._accuracy(self.pos_scores, self.neg_scores, self.pos_group_ids, self.neg_group_ids)
+
+    def reset(self) -> None:
+        self.pos_scores = self.pos_scores.new_empty((0,))
+        self.neg_scores = self.neg_scores.new_empty((0,))
+        self.pos_group_ids = self.pos_group_ids.new_empty((0,))
+        self.neg_group_ids = self.neg_group_ids.new_empty((0,))
+
+
+class HitRate_trigger(OptimizedMetric):
+    def __init__(self, k: int) -> None:
+        super().__init__()
+        if k <= 0:
+            raise ValueError(f"k must be > 0, got {k}")
+        self.k = k
+        self.register_buffer("pos_scores", torch.empty(0, dtype=torch.float32), persistent=False)
+        self.register_buffer("neg_scores", torch.empty(0, dtype=torch.float32), persistent=False)
+        self.register_buffer("pos_group_ids", torch.empty(0, dtype=torch.long), persistent=False)
+        self.register_buffer("neg_group_ids", torch.empty(0, dtype=torch.long), persistent=False)
+        self.reset()
+
+    def update(self, pred: torch.Tensor, target: torch.Tensor, group_ids: torch.Tensor) -> torch.Tensor:  # pyright: ignore[reportIncompatibleMethodOverride]
+        with torch.no_grad():
+            pos_mask = target > 0.5  # noqa: PLR2004
+            neg_mask = ~pos_mask
+
+            pos_batch = pred[pos_mask].detach()
+            neg_batch = pred[neg_mask].detach()
+            pos_group_ids_batch = group_ids[pos_mask].detach()
+            neg_group_ids_batch = group_ids[neg_mask].detach()
+
+            if pos_batch.numel() > 0:
+                self.pos_scores = torch.cat([self.pos_scores, pos_batch])
+                self.pos_group_ids = torch.cat([self.pos_group_ids, pos_group_ids_batch])
+            if neg_batch.numel() > 0:
+                self.neg_scores = torch.cat([self.neg_scores, neg_batch])
+                self.neg_group_ids = torch.cat([self.neg_group_ids, neg_group_ids_batch])
+
+            return self._hits_at_k(pos_batch, neg_batch, self.k, pos_group_ids_batch, neg_group_ids_batch)
+
+    @staticmethod
+    def _hits_at_k(
+        y_pred_pos: torch.Tensor,
+        y_pred_neg: torch.Tensor,
+        k: int,
+        pos_group_ids: torch.Tensor,
+        neg_group_ids: torch.Tensor,
+    ) -> torch.Tensor:
+        if y_pred_pos.numel() == 0:
+            return torch.tensor(0.0, device=y_pred_pos.device)
+
+        hits = []
+        for group_id in pos_group_ids.unique():
+            pos = y_pred_pos[pos_group_ids == group_id]
+            neg = y_pred_neg[neg_group_ids == group_id]
+
+            if neg.numel() < k:
+                hits.append(torch.tensor(1.0, device=pos.device))
+            else:
+                kth_score = torch.topk(neg, k).values[-1]
+                hits.append((pos > kth_score).float().mean())
+
+        return torch.stack(hits).mean()
+
+    def compute(self) -> torch.Tensor:
+        with torch.no_grad():
+            return self._hits_at_k(self.pos_scores, self.neg_scores, self.k, self.pos_group_ids, self.neg_group_ids)
+
+    def reset(self) -> None:
+        self.pos_scores = self.pos_scores.new_empty((0,))
+        self.neg_scores = self.neg_scores.new_empty((0,))
+        self.pos_group_ids = self.pos_group_ids.new_empty((0,))
+        self.neg_group_ids = self.neg_group_ids.new_empty((0,))
+
+
+class MRR_trigger(OptimizedMetric):
+
+    def __init__(self) -> None:
+        super().__init__()
+
+        self.register_buffer("pos_scores", torch.empty(0, dtype=torch.float32), persistent=False)
+        self.register_buffer("neg_scores", torch.empty(0, dtype=torch.float32), persistent=False)
+        
+        self.register_buffer("pos_group_ids", torch.empty(0, dtype=torch.long), persistent=False)
+        self.register_buffer("neg_group_ids", torch.empty(0, dtype=torch.long), persistent=False)
+        
+        self.reset()
+
+    def update(self, pred: torch.Tensor, target: torch.Tensor, group_ids: torch.Tensor) -> torch.Tensor:
+
+        with torch.no_grad():
+            pos_mask = target > 0.5  
+            neg_mask = ~pos_mask
+
+            pos_batch = pred[pos_mask].detach()
+            neg_batch = pred[neg_mask].detach()
+
+            pos_group_ids_batch = group_ids[pos_mask].detach()
+            neg_group_ids_batch = group_ids[neg_mask].detach()
+
+            if pos_batch.numel() > 0:
+                self.pos_scores = torch.cat([self.pos_scores, pos_batch])
+                self.pos_group_ids = torch.cat([self.pos_group_ids, group_ids[pos_mask].detach()])
+            
+            if neg_batch.numel() > 0:
+                self.neg_scores = torch.cat([self.neg_scores, neg_batch])
+                self.neg_group_ids = torch.cat([self.neg_group_ids, group_ids[neg_mask].detach()])
+
+            return self._mrr(pos_batch, neg_batch, pos_group_ids_batch, neg_group_ids_batch)
+
+    @staticmethod
+    def _mrr(
+        y_pred_pos: torch.Tensor,
+        y_pred_neg: torch.Tensor,
+        pos_group_ids: torch.Tensor,
+        neg_group_ids: torch.Tensor,
+    ) -> torch.Tensor:
+        
+        if y_pred_pos.numel() == 0:
+            return torch.tensor(0.0, device=y_pred_pos.device)
+        
+        device = y_pred_pos.device
+        P, N = y_pred_pos.numel(), y_pred_neg.numel()
+
+        # 1. Combined tab 
+        all_scores = torch.cat([y_pred_pos, y_pred_neg])
+        all_groups = torch.cat([pos_group_ids, neg_group_ids])
+        is_neg = torch.cat([
+            torch.zeros(P, dtype=torch.long, device=device),  # positifs -> 0
+            torch.ones(N,  dtype=torch.long, device=device),  # negatifs -> 1
+        ])
+
+        # 2. Ranking per group first and then per decreasing score
+        order = torch.argsort(-all_scores, stable=True)
+        sort_idx = order[torch.argsort(all_groups[order], stable=True)]
+        sorted_groups = all_groups[sort_idx]
+        sorted_is_neg = is_neg[sort_idx]
+
+        # 3. Define the frontier between groups 
+        is_new_group = torch.cat([
+            torch.tensor([True], device=device),
+            sorted_groups[1:] != sorted_groups[:-1],
+        ])
+        group_idx = is_new_group.cumsum(0) - 1
+
+        # 4. Negative cumsum with reset per group 
+        global_cumsum = sorted_is_neg.cumsum(0)
+        group_starts = torch.where(is_new_group)[0]
+        cumsum_at_start = torch.cat([
+            torch.zeros(1, dtype=global_cumsum.dtype, device=device),
+            global_cumsum[group_starts[1:] - 1],
+        ])
+        within_group_neg_count = global_cumsum - cumsum_at_start[group_idx]
+
+        # 5. Rank of the positives
+        pos_mask = ~sorted_is_neg.bool()
+        pos_ranks = within_group_neg_count[pos_mask].float() + 1.0
+        pos_group_idx = group_idx[pos_mask]
+        rr = 1.0 / pos_ranks
+
+        # 6. Mean per group
+        num_groups = group_starts.shape[0]
+        rr_sum = torch.zeros(num_groups, device=device).scatter_add_(
+            0, pos_group_idx, rr)
+        pos_count = torch.zeros(num_groups, device=device).scatter_add_(
+            0, pos_group_idx, torch.ones_like(rr))
+        valid = pos_count > 0
+        group_mrr = rr_sum[valid] / pos_count[valid]
+
+        # 7. Final mean
+        return group_mrr.mean()
+    
+    
+    def compute(self) -> torch.Tensor:
+        with torch.no_grad():
+            return self._mrr(self.pos_scores, self.neg_scores, self.pos_group_ids, self.neg_group_ids)
+
+    def reset(self) -> None:
+        self.pos_scores = self.pos_scores.new_empty((0,))
+        self.neg_scores = self.neg_scores.new_empty((0,))
+        self.pos_group_ids = self.pos_group_ids.new_empty((0,))
+        self.neg_group_ids = self.neg_group_ids.new_empty((0,))
+
+
+class Precision_trigger(OptimizedMetric):
+    def __init__(self, threshold: float = 0.0) -> None:
+        super().__init__()
+        self.threshold = threshold
+
+        self.register_buffer("pos_scores", torch.empty(0, dtype=torch.float32), persistent=False)
+        self.register_buffer("neg_scores", torch.empty(0, dtype=torch.float32), persistent=False)
+        
+        self.register_buffer("pos_group_ids", torch.empty(0, dtype=torch.long), persistent=False)
+        self.register_buffer("neg_group_ids", torch.empty(0, dtype=torch.long), persistent=False)
+        
+        self.reset()
+
+    def update(self, pred: torch.Tensor, target: torch.Tensor, group_ids: torch.Tensor) -> torch.Tensor:
+        with torch.no_grad():
+            pos_mask = target > 0.5  
+            neg_mask = ~pos_mask
+
+            pos_batch = pred[pos_mask].detach()
+            neg_batch = pred[neg_mask].detach()
+            pos_group_ids_batch = group_ids[pos_mask].detach()
+            neg_group_ids_batch = group_ids[neg_mask].detach()
+
+            self.pos_scores = torch.cat([self.pos_scores, pos_batch])
+            self.neg_scores = torch.cat([self.neg_scores, neg_batch])
+
+            self.pos_group_ids = torch.cat([self.pos_group_ids, pos_group_ids_batch])
+            self.neg_group_ids = torch.cat([self.neg_group_ids, neg_group_ids_batch])
+
+            return self._precision(pred[pos_mask], pred[neg_mask], group_ids[pos_mask], group_ids[neg_mask])
+        
+    def _precision(self, pos, neg, pos_gids, neg_gids):
+        device = pos.device if pos.numel() > 0 else neg.device
+        all_gids_cat = torch.cat([pos_gids, neg_gids])
+        if all_gids_cat.numel() == 0:
+            return torch.tensor(0.0, device=device)
+
+        _, inverse = all_gids_cat.unique(return_inverse=True)
+        pos_compact = inverse[:pos_gids.shape[0]]
+        neg_compact = inverse[pos_gids.shape[0]:]
+        num_groups = inverse.max().item() + 1
+
+        pos_above = (pos > self.threshold).float()
+        neg_above = (neg > self.threshold).float()
+
+        tp = torch.zeros(num_groups, device=device).scatter_add_(0, pos_compact, pos_above)
+        fp = torch.zeros(num_groups, device=device).scatter_add_(0, neg_compact, neg_above)
+
+        return (tp / (tp + fp).clamp(min=1)).mean()
+    
+    def compute(self):
+        with torch.no_grad():
+            return self._precision(self.pos_scores, self.neg_scores,
+                                   self.pos_group_ids, self.neg_group_ids)
+        
+    def reset(self):
+        self.pos_scores = self.pos_scores.new_empty((0,))
+        self.neg_scores = self.neg_scores.new_empty((0,))
+        self.pos_group_ids = self.pos_group_ids.new_empty((0,))
+        self.neg_group_ids = self.neg_group_ids.new_empty((0,))
+
+class Recall_trigger(OptimizedMetric):
+    def __init__(self, threshold: float = 0.0) -> None:
+        super().__init__()
+        self.threshold = threshold
+
+        self.register_buffer("pos_scores", torch.empty(0, dtype=torch.float32), persistent=False)
+        self.register_buffer("pos_group_ids", torch.empty(0, dtype=torch.long), persistent=False)
+        
+        self.reset()
+
+    def update(self, pred: torch.Tensor, target: torch.Tensor, group_ids: torch.Tensor) -> torch.Tensor:
+        with torch.no_grad():
+            pos_mask = target > 0.5  
+
+            pos_batch = pred[pos_mask].detach()
+            pos_group_ids_batch = group_ids[pos_mask].detach()
+
+            self.pos_scores = torch.cat([self.pos_scores, pos_batch])
+            self.pos_group_ids = torch.cat([self.pos_group_ids, pos_group_ids_batch])
+
+            return self._recall(pos_batch, pos_group_ids_batch)
+        
+    def _recall(self, pos, pos_gids):
+        if pos.numel() == 0:
+            return torch.tensor(0.0, device=pos.device)
+
+        _, compact = pos_gids.unique(return_inverse=True)
+        num_groups = compact.max().item() + 1
+        device = pos.device
+
+        pos_above = (pos > self.threshold).float()
+
+        tp = torch.zeros(num_groups, device=device).scatter_add_(0, compact, pos_above)
+        total = torch.zeros(num_groups, device=device).scatter_add_(0, compact, torch.ones_like(pos_above))
+
+        return (tp / total.clamp(min=1)).mean()
+    
+    def compute(self):
+        with torch.no_grad():
+            return self._recall(self.pos_scores, self.pos_group_ids)
+        
+    def reset(self):
+        self.pos_scores = self.pos_scores.new_empty((0,))
+        self.pos_group_ids = self.pos_group_ids.new_empty((0,))
 
 
 class BinaryAccuracy(OptimizedMetric):

@@ -8,9 +8,11 @@ from fast_gnn_benchmark.data.dataset.ogbn import OGBNDataset
 from fast_gnn_benchmark.data.dataset.ogbn_on_disk import OGBNDatasetOnDisk, OGBNDatasetOnRAM
 from fast_gnn_benchmark.data.dataset.pokec import PokecDataset
 from fast_gnn_benchmark.data.dataset.amazon_products import AmazonDataset
+from fast_gnn_benchmark.data.dataset.coview_mdm import CoViewMDMDataset 
 from fast_gnn_benchmark.data.dataset.seal import SEALDataset
 from fast_gnn_benchmark.data.dataset.split_strategies import random_split_dataset, resplit_planetoid_dataset
 from fast_gnn_benchmark.data.link_dataloader import LinkLoader
+from fast_gnn_benchmark.data.trigger_dataloader import TriggerLoader
 from fast_gnn_benchmark.data.seal_dataloader import SEALDataLoader
 from fast_gnn_benchmark.data.node_dataloaders import (
     BaseDataLoader,
@@ -50,6 +52,7 @@ DatasetTypeChoices = (
     | AmazonDataset
     | Coauthor
     | FixLinkPropPredDataset
+    | CoViewMDMDataset
 )
 
 DataLoaderTypeChoices = (
@@ -65,6 +68,7 @@ DataLoaderTypeChoices = (
     | DropEdgeLoader
     | LinkLoader
     | SEALDataLoader
+    | TriggerLoader
 )
 
 
@@ -178,6 +182,9 @@ class DataParameters(BaseModel):
             case DatasetType.AMAZON_PRODUCTS:
                 dataset = AmazonDataset(root="./datasets/amazon")
 
+            case DatasetType.COVIEW_MDM:
+                dataset = CoViewMDMDataset(bucket= "mirakl-data-science-tmp2", s3_key= "nbraun/datasets/coview-mdm/data.pt")
+
             case DatasetType.OGBL_PPA:
                 dataset = FixLinkPropPredDataset(root="./datasets/ogbl/", name="ogbl-ppa", transform=transforms)
                 dataset.data.x = dataset.data.x.float()
@@ -236,6 +243,7 @@ class DataParameters(BaseModel):
             DatasetType.OGBL_BIOKG,
             DatasetType.OGBL_VESSEL,
             DatasetType.AMAZON_PRODUCTS,
+            DatasetType.COVIEW_MDM,
         ]:
             print_data_properties_node_classification(dataset[0])  # type: ignore
         else:
@@ -356,6 +364,19 @@ class DataParameters(BaseModel):
                     on_device=data_loader_parameters.on_device,
                     split_type=split_type,
                     use_val_edges_as_input=data_loader_parameters.use_val_edges_as_input,
+                    use_precomputed_negatives=data_loader_parameters.use_precomputed_negatives,
+                    precomputed_negatives_sampling_ratio=data_loader_parameters.precomputed_negatives_sampling_ratio,
+                )
+
+            case DataLoaderType.TRIGGER_LOADER:
+                return TriggerLoader(
+                    dataset,
+                    batch_size=data_loader_parameters.batch_size,
+                    mask_loss_edges=data_loader_parameters.mask_loss_edges,
+                    on_device=data_loader_parameters.on_device,
+                    split_type=split_type,
+                    use_val_edges_as_input=data_loader_parameters.use_val_edges_as_input,
+                    neg_sampling_ratio=data_loader_parameters.neg_sampling_ratio,
                 )
 
             case DataLoaderType.SEAL_LOADER:

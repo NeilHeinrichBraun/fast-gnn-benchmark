@@ -28,8 +28,22 @@ class BaseGNN(L.LightningModule, Generic[T], ABC):
 
         return MetricsCollection(metrics, prefix=prefix)
 
-    def configure_optimizers(self) -> torch.optim.Optimizer:
-        return self.model_parameters.optimizer.get(self.model.parameters())
+
+    def configure_optimizers(self) -> torch.optim.Optimizer | dict:
+        optimizer = self.model_parameters.optimizer.get(self.model.parameters())
+        if self.model_parameters.scheduler is None:
+            return optimizer
+
+        sched = self.model_parameters.scheduler
+        lr_scheduler_config = {
+            "scheduler": sched.get(optimizer),
+            "interval": sched.interval,
+            "frequency": sched.frequency,
+        }
+        if sched.monitor is not None:          # requis par ReduceLROnPlateau
+            lr_scheduler_config["monitor"] = sched.monitor
+
+        return {"optimizer": optimizer, "lr_scheduler": lr_scheduler_config}
 
     @abstractmethod
     def load_model(self) -> torch.nn.Module:

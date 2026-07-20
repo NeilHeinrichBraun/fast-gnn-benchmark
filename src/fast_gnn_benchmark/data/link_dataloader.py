@@ -20,11 +20,10 @@ class LinkLoader:
         on_device=True,
         split_type: SplitType = SplitType.TRAIN,
         use_val_edges_as_input: bool = False,
+        use_precomputed_negatives: bool = False,
+        precomputed_negatives_sampling_ratio: float | None = None,
     ):
-        if on_device:
-            self.device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-        else:
-            self.device = torch.device("cpu")
+        self.device = torch.device("cuda" if on_device and torch.cuda.is_available() else "cpu")
 
         self._use_sparse = True
         
@@ -37,6 +36,8 @@ class LinkLoader:
         self.positive_per_batch = batch_size - int(batch_size * negative_sampling_ratio)
 
         self.use_val_edges_as_input = use_val_edges_as_input
+        self.use_precomputed_negatives = use_precomputed_negatives
+        self.precomputed_negatives_sampling_ratio = precomputed_negatives_sampling_ratio
 
         self.to_sparse_tensor = ToSparseTensor() if self._use_sparse else None
 
@@ -45,6 +46,10 @@ class LinkLoader:
                 self.positive_edges, self.non_negative_edges_ids = self.cannonize_positive_edges(
                     dataset, remove_self_loops=True
                 )
+
+                if use_precomputed_negatives:
+                    self.negative_edges = dataset.split["train"]["edge_neg"].to(self.device)
+
 
             case SplitType.VAL:
                 splits = dataset.split["valid"]
@@ -70,6 +75,8 @@ class LinkLoader:
                     )
             case _:
                 raise ValueError(f"Invalid split type: {split_type}")
+
+        self.data = self._maybe_to_sparse(self.data)
 
     def cannonize_positive_edges(
         self, dataset: Any, remove_self_loops: bool = True
@@ -172,7 +179,16 @@ class LinkLoader:
                 end_idx = start_idx + self.positive_per_batch
 
                 positive_edges = self.positive_edges[:, start_idx:end_idx]
-                negative_edges = self.rejection_sampling_negative_edges(positive_edges.shape[1])
+                if self.use_precomputed_negatives:
+                    if self.precomputed_negatives_sampling_ratio is not None:
+                        num_neg = int(positive_edges.shape[1] * self.precomputed_negatives_sampling_ratio)
+                        # randint O(num_neg) vs randperm O(N) — avoids full sort of 62M negatives per batch
+                        idx = torch.randint(0, self.negative_edges.shape[0], (num_neg,), device=self.device)
+                        negative_edges = self.negative_edges[idx].T
+                    else:
+                        negative_edges = self.negative_edges[start_idx:end_idx].T
+                else:
+                    negative_edges = self.rejection_sampling_negative_edges(positive_edges.shape[1])
                 target_edges = torch.cat([positive_edges, negative_edges], dim=1)
                 labels = torch.cat(
                     [
@@ -191,6 +207,7 @@ class LinkLoader:
                         target_edges=target_edges,
                         y=labels,
                     )
+                    data = self._maybe_to_sparse(data)
                 else:
                     data = Data(
                         x=self.data.x,
@@ -198,8 +215,6 @@ class LinkLoader:
                         target_edges=target_edges,
                         y=labels,
                     )
-
-                data = self._maybe_to_sparse(data)
 
                 yield data
 
@@ -214,7 +229,5 @@ class LinkLoader:
                     target_edges=target_edges,
                     y=labels,
                 )
-
-                data = self._maybe_to_sparse(data)
 
                 yield data

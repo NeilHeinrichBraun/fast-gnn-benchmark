@@ -11,6 +11,11 @@ from pydantic import BaseModel, Field, field_validator
 
 from fast_gnn_benchmark.metrics.base_metrics import (
     MRR,
+    MRR_trigger,
+    HitRate_trigger,
+    BinaryAccuracy_trigger,
+    Precision_trigger,
+    Recall_trigger,
     BinaryAccuracy,
     BinaryDistribution,
     HitRate,
@@ -63,6 +68,11 @@ class MetricType(Enum):
     HIT_RATE = "hit_rate"
     MEAN_RECIPROCAL_RANK = "mean_reciprocal_rank"
     BINARY_ACCURACY = "binary_accuracy"
+    MRR_TRIGGER = "mrr_trigger"
+    HIT_RATE_TRIGGER = "hit_rate_trigger"
+    BINARY_ACCURACY_TRIGGER = "binary_accuracy_trigger"
+    PRECISION_TRIGGER = "precision_trigger"
+    RECALL_TRIGGER = "recall_trigger"
 
 
 class MetricParameters(BaseModel):
@@ -123,6 +133,18 @@ class MetricParameters(BaseModel):
                 return MRR(**self.parameters)
             case MetricType.BINARY_ACCURACY:
                 return BinaryAccuracy(**self.parameters)
+            case MetricType.MRR_TRIGGER:
+                return MRR_trigger(**self.parameters)
+            case MetricType.HIT_RATE_TRIGGER:
+                if "k" not in self.parameters:
+                    raise ValueError("HitRate_trigger metric must have a 'k' parameter")
+                return HitRate_trigger(**self.parameters)
+            case MetricType.BINARY_ACCURACY_TRIGGER:
+                return BinaryAccuracy_trigger(**self.parameters)
+            case MetricType.PRECISION_TRIGGER:
+                return Precision_trigger(**self.parameters)
+            case MetricType.RECALL_TRIGGER:
+                return Recall_trigger(**self.parameters)
             case _:
                 raise ValueError(f"Invalid metric type: {self.metric_type}")
 
@@ -150,6 +172,34 @@ class OptimizerParameters(BaseModel):
                 return torch.optim.AdamW(nn_parameters, **self.parameters)
             case _:
                 raise ValueError(f"Invalid optimizer type: {self.optimizer_type}")
+
+
+class SchedulerType(Enum):
+    STEP = "step"
+    COSINE = "cosine"
+    REDUCE_ON_PLATEAU = "reduce_on_plateau"
+
+
+class SchedulerParameters(BaseModel):
+    scheduler_type: SchedulerType
+    parameters: dict[str, Any] = Field(default_factory=dict)
+    monitor: str | None = None
+    interval: Literal["epoch", "step"] = "epoch"
+    frequency: int = 1
+
+    def get(
+        self, optimizer: torch.optim.Optimizer
+    ) -> torch.optim.lr_scheduler.LRScheduler | torch.optim.lr_scheduler.ReduceLROnPlateau:
+        match self.scheduler_type:
+            case SchedulerType.STEP:
+                return torch.optim.lr_scheduler.StepLR(optimizer, **self.parameters)
+            case SchedulerType.COSINE:
+                return torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, **self.parameters)
+            case SchedulerType.REDUCE_ON_PLATEAU:
+                return torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, **self.parameters)
+            case _:
+                raise ValueError(f"Invalid scheduler type: {self.scheduler_type}")
+
 
 
 # -------------------- Backbone --------------------
@@ -322,6 +372,7 @@ class BaseModelParameters(BaseModel):
     loss: LossParameters
     metrics: list[MetricParameters]
     optimizer: OptimizerParameters
+    scheduler: SchedulerParameters | None = None
 
     @field_validator("architecture_parameters", mode="before")
     @classmethod
@@ -365,6 +416,7 @@ class LinkPredictionModelParameters(BaseModelParameters):
             use_embedding=False, embedding_dim=0, embedding_only=False, initializer="orthogonal", num_nodes=0
         )
     )
+    grouped_metrics: list[MetricParameters] = Field(default_factory=list)
 
 
 # -------------------- Trainer parameters --------------------

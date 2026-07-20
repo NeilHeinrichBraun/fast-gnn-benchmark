@@ -1,0 +1,129 @@
+bundle:
+  name: fast-gnn-benchmark
+
+workspace:
+  host: https://mirakl-ai.cloud.databricks.com
+  profile: mirakl-ai
+
+resources:
+  jobs:
+    coview_mdm_training:
+      name: coview-mdm-training
+      tasks:
+        - task_key: train
+          existing_cluster_id: 0611-075408-z0otz8r1
+          spark_python_task:
+            python_file: scripts/main.py
+            parameters:
+              - "--config_file"
+              - "/Workspace/Users/neil.braun@mirakl.com/.bundle/fast-gnn-benchmark/dev/files/configs/link_prediction/gae_gcn_coview_mdm.yml"
+          libraries:
+            - pypi:
+                package: torch
+            - pypi:
+                package: torch_geometric
+            - pypi:
+                package: boto3
+
+    coview_mdm_training_128:
+      name: coview-mdm-training-128
+      tasks:
+        - task_key: train
+          existing_cluster_id: 0611-075408-z0otz8r1
+          spark_python_task:
+            python_file: scripts/main.py
+            parameters:
+              - "--config_file"
+              - "/Workspace/Users/neil.braun@mirakl.com/.bundle/fast-gnn-benchmark/dev/files/configs/link_prediction/gae_gcn_coview_mdm_128.yml"
+          libraries:
+            - pypi:
+                package: torch
+            - pypi:
+                package: torch_geometric
+            - pypi:
+                package: boto3
+
+    coview_mdm_training_logreg_baseline:
+      name: coview-mdm-training-logreg-baseline
+      tasks:
+        - task_key: train
+          existing_cluster_id: 0608-153856-5bzteuq5
+          spark_python_task:
+            python_file: scripts/main.py
+            parameters:
+              - "--config_file"
+              - "/Workspace/Users/neil.braun@mirakl.com/.bundle/fast-gnn-benchmark/dev/files/configs/link_prediction/logreg_baseline_coview_mdm.yml"
+          libraries:
+            - pypi:
+                package: torch
+            - pypi:
+                package: torch_geometric
+            - pypi:
+                package: boto3
+
+    coview_mdm_training_mlp_baseline_128:
+      name: coview-mdm-training-mlp-baseline-128
+      tasks:
+        - task_key: train
+          existing_cluster_id: 0611-075408-z0otz8r1
+          spark_python_task:
+            python_file: scripts/main.py
+            parameters:
+              - "--config_file"
+              - "/Workspace/Users/neil.braun@mirakl.com/.bundle/fast-gnn-benchmark/dev/files/configs/link_prediction/mlp_baseline_coview_mdm_128.yml"
+          libraries:
+            - pypi:
+                package: torch
+            - pypi:
+                package: torch_geometric
+            - pypi:
+                package: boto3
+
+    sweep_coview_mdm:
+      name: sweep-coview-mdm
+      tasks:
+        - task_key: sweep
+          existing_cluster_id: 0611-075408-z0otz8r1
+          spark_python_task:
+            python_file: scripts/wandb_sweep_launch.py
+            parameters:
+              - "--config-file"
+              - "/Workspace/Users/neil.braun@mirakl.com/.bundle/fast-gnn-benchmark/dev/files/configs/link_prediction/sweep/gae_gcn_coview_mdm_128_sweep.yml"
+              - "--project"
+              - "fast_gnn_benchmark"
+              - "--entity"
+              - "neilbraunheinrich-national-university-of-singapore"
+          libraries:
+            - pypi:
+                package: torch
+            - pypi:
+                package: torch_geometric
+            - pypi:
+                package: boto3
+
+    sweep_archi_coview_mdm:
+      name: sweep-archi-coview-mdm
+      tasks:
+        - task_key: sweep
+          existing_cluster_id: 0608-153856-5bzteuq5
+          spark_python_task:
+            python_file: scripts/wandb_sweep_launch.py
+            parameters:
+              - "--config-file"
+              - "/Workspace/Users/neil.braun@mirakl.com/.bundle/fast-gnn-benchmark/dev/files/configs/link_prediction/sweep/gae_gcn_coview_mdm_128_archi_sweep.yml"
+              - "--project"
+              - "fast_gnn_benchmark"
+              - "--entity"
+              - "neilbraunheinrich-national-university-of-singapore"
+          libraries:
+            - pypi:
+                package: torch
+            - pypi:
+                package: torch_geometric
+            - pypi:
+                package: boto3
+
+targets:
+  dev:
+    default: true
+    mode: development

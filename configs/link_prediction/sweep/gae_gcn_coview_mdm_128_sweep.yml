@@ -1,0 +1,43 @@
+command:
+  - python
+  - /Workspace/Users/neil.braun@mirakl.com/.bundle/fast-gnn-benchmark/dev/files/scripts/wandb_sweep_agent.py
+
+name: gae_gcn_coview_mdm_128_sweep
+
+method: bayes # random, grid, bayes
+
+metric:
+  goal: maximize
+  name: val/mrr_trigger
+
+run_cap: 20
+
+parameters:
+  base_config_file:
+    values:
+      - /Workspace/Users/neil.braun@mirakl.com/.bundle/fast-gnn-benchmark/dev/files/configs/link_prediction/gae_gcn_coview_mdm_128.yml
+
+  trainer_config:
+    parameters:
+      max_time:
+        value: "00:00:30:00"
+      max_epochs:
+        value: 200
+  
+  data_parameters:
+    parameters:
+      train_data_loader_parameters:
+        parameters:
+          batch_size:
+            values: [262144, 524288, 1048576]
+
+  model_parameters:
+    parameters:
+      optimizer:
+        parameters:
+          parameters:
+            parameters:
+              lr:
+                distribution: "log_uniform_values"
+                min: 0.0001
+                max: 0.01

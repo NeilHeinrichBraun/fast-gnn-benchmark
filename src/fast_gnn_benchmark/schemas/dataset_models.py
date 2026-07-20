@@ -51,6 +51,7 @@ class DatasetType(Enum):
     OGBL_BIOKG = "ogbl-biokg"
     OGBL_VESSEL = "ogbl-vessel"
     AMAZON_PRODUCTS = "amazon-products"
+    COVIEW_MDM = "coview-mdm"
 
 
 class DataLoaderType(Enum):
@@ -66,6 +67,7 @@ class DataLoaderType(Enum):
     DROP_EDGE_LOADER = "drop_edge_loader"
     LINK_LOADER = "link_loader"
     SEAL_LOADER = "seal_loader"
+    TRIGGER_LOADER = "trigger_loader"
 
 
 class DataLoaderParameters(BaseModel):
@@ -159,6 +161,17 @@ class LinkLoaderParameters(DataLoaderParameters):
     on_device: bool = True
 
     use_val_edges_as_input: bool = False
+    use_precomputed_negatives: bool = False
+    precomputed_negatives_sampling_ratio: float | None = None
+
+class TriggerLoaderParameters(DataLoaderParameters):
+    data_loader_type: Literal[DataLoaderType.TRIGGER_LOADER] = DataLoaderType.TRIGGER_LOADER
+    batch_size: int
+    mask_loss_edges: bool = True
+    on_device: bool = True
+    use_val_edges_as_input: bool = False
+    neg_sampling_ratio: int = 5
+
 
 class SEALLoaderParameters(DataLoaderParameters):
     data_loader_type: Literal[DataLoaderType.SEAL_LOADER] = DataLoaderType.SEAL_LOADER
@@ -194,6 +207,7 @@ DataLoaderParametersChoices = Annotated[
     | RandomNodeLoaderWithReplacementParameters
     | DropEdgeLoaderParameters
     | LinkLoaderParameters
-    | SEALLoaderParameters,
+    | SEALLoaderParameters
+    | TriggerLoaderParameters,
     Field(discriminator="data_loader_type"),
 ]

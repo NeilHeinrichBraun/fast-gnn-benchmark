@@ -17,11 +17,11 @@ data_parameters:
     pin_memory: false
     shuffle: true
     cache_dir: ./datasets/seal_cache/ogbl-collab
-    num_train_samples: null
+    num_train_samples: 500000
     use_cpp_extension: true
   val_data_loader_parameters:
     data_loader_type: seal_loader
-    batch_size: 4096
+    batch_size: 2048
     num_hops: 1
     node_labeling: drnl
     use_features: true
@@ -30,11 +30,11 @@ data_parameters:
     pin_memory: false
     shuffle: false
     cache_dir: ./datasets/seal_cache/ogbl-collab
-    num_train_samples: null
+    num_train_samples: 500000
     use_cpp_extension: true
   test_data_loader_parameters:
     data_loader_type: seal_loader
-    batch_size: 4096
+    batch_size: 2048
     num_hops: 1
     node_labeling: drnl
     use_features: true
@@ -43,7 +43,7 @@ data_parameters:
     pin_memory: false
     shuffle: false
     cache_dir: ./datasets/seal_cache/ogbl-collab
-    num_train_samples: null
+    num_train_samples: 500000
     use_cpp_extension: true
 
 model_parameters:

@@ -15,11 +15,6 @@ from fast_gnn_benchmark.data.dataset.seal_cpp import (
     build_csr as _cpp_build_csr,
 )
 
-
-# ---------------------------------------------------------------------------
-# Node labeling helpers (Python fallback)
-# ---------------------------------------------------------------------------
-
 def drnl_node_labeling(edge_index, src, dst, num_nodes=None) -> torch.Tensor:
     src, dst = (dst, src) if src > dst else (src, dst)
     adj = to_scipy_sparse_matrix(edge_index, num_nodes=num_nodes).tocsr()
@@ -53,10 +48,6 @@ def drnl_node_labeling(edge_index, src, dst, num_nodes=None) -> torch.Tensor:
 def zero_node_labeling(num_nodes: int) -> torch.Tensor:
     return torch.zeros(num_nodes, dtype=torch.long)
 
-
-# ---------------------------------------------------------------------------
-# Dataset
-# ---------------------------------------------------------------------------
 
 class SEALDataset(InMemoryDataset):
     def __init__(
@@ -166,7 +157,6 @@ class SEALDataset(InMemoryDataset):
             return self._extract_cpp(edge_label_index, y, desc)
         return self._extract_python(edge_index, edge_label_index, y, desc)
 
-    # ------------------------------------------------------------------
 
     def _extract_cpp(self, edge_label_index, y, desc: str) -> list[Data]:
         N = edge_label_index.shape[1]
