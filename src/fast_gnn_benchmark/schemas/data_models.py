@@ -185,6 +185,9 @@ class DataParameters(BaseModel):
             case DatasetType.COVIEW_MDM:
                 dataset = CoViewMDMDataset(bucket= "mirakl-data-science-tmp2", s3_key= "nbraun/datasets/coview-mdm/data.pt")
 
+            case DatasetType.COVIEW_MDM_PROTOTYPE:
+                dataset = CoViewMDMDataset(bucket= "mirakl-data-science-tmp2", s3_key= "nbraun/datasets/coview-mdm/data_prototype.pt")
+
             case DatasetType.OGBL_PPA:
                 dataset = FixLinkPropPredDataset(root="./datasets/ogbl/", name="ogbl-ppa", transform=transforms)
                 dataset.data.x = dataset.data.x.float()
@@ -244,6 +247,7 @@ class DataParameters(BaseModel):
             DatasetType.OGBL_VESSEL,
             DatasetType.AMAZON_PRODUCTS,
             DatasetType.COVIEW_MDM,
+            DatasetType.COVIEW_MDM_PROTOTYPE,
         ]:
             print_data_properties_node_classification(dataset[0])  # type: ignore
         else:

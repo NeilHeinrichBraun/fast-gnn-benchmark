@@ -29,12 +29,32 @@ resources:
       name: coview-mdm-training-128
       tasks:
         - task_key: train
-          existing_cluster_id: 0611-075408-z0otz8r1
+          existing_cluster_id: 0608-153856-5bzteuq5
           spark_python_task:
             python_file: scripts/main.py
             parameters:
               - "--config_file"
               - "/Workspace/Users/neil.braun@mirakl.com/.bundle/fast-gnn-benchmark/dev/files/configs/link_prediction/gae_gcn_coview_mdm_128.yml"
+          libraries:
+            - pypi:
+                package: torch
+            - pypi:
+                package: torch_geometric
+            - pypi:
+                package: boto3
+
+    # Meme cluster et memes libs que coview_mdm_training_128: le config prototype n'en differe que
+    # par dataset_type (data_prototype.pt) et dirpath (checkpoints coview-mdm-prototype).
+    coview_mdm_training_prototype:
+      name: coview-mdm-training-prototype
+      tasks:
+        - task_key: train
+          existing_cluster_id: 0608-153856-5bzteuq5
+          spark_python_task:
+            python_file: scripts/main.py
+            parameters:
+              - "--config_file"
+              - "/Workspace/Users/neil.braun@mirakl.com/.bundle/fast-gnn-benchmark/dev/files/configs/link_prediction/gae_gcn_coview_mdm_prototype.yml"
           libraries:
             - pypi:
                 package: torch

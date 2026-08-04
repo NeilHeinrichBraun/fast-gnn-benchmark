@@ -1,0 +1,135 @@
+# Variante prototype de gae_gcn_coview_mdm_128.yml.
+# Seules deux valeurs changent, et elles suffisent a isoler entierement ce run:
+#   dataset_type -> charge data_prototype.pt au lieu de data.pt
+#   dirpath      -> checkpoints dans coview-mdm-prototype, pour ne pas polluer coview-mdm-128
+#                   que model_test.ipynb lit encore.
+# Le reste (architecture, optimiseur, callbacks, wandb) est identique, pour que la seule
+# difference entre les deux runs soit le jeu d'edges.
+
+parameters:
+  data_dim: &data_dim 384
+  num_nodes: &num_nodes 190091
+
+
+seed: 42
+
+data_parameters:
+  dataset_type: coview-mdm-prototype
+  to_undirected: false
+  add_self_loops_and_remove_duplicate_edges: false
+  remove_duplicate_edges: false
+  train_data_loader_parameters:
+    data_loader_type: trigger_loader
+    batch_size: 262144
+    mask_loss_edges: true
+    on_device: true
+    neg_sampling_ratio: 5
+  val_data_loader_parameters:
+    data_loader_type: trigger_loader
+    batch_size: 524288
+    on_device: true
+    neg_sampling_ratio: 5
+  test_data_loader_parameters:
+    data_loader_type: trigger_loader
+    batch_size: 524288
+    on_device: true
+    use_val_edges_as_input: false
+    neg_sampling_ratio: 5
+
+model_parameters:
+  task_type: link_prediction
+  architecture_parameters:
+      architecture_type: gcn
+      input_dim: *data_dim
+      hidden_dim: 128
+      output_dim: 128
+      num_layers: 3
+      dropout: 0.0
+      use_input_projection: false
+      use_output_projection: false
+      use_residual: false
+      use_layer_norm: false
+      conv_parameters:
+        cached: true
+
+  link_predictor_parameters:
+    link_predictor_type: hadamard_mlp
+    parameters:
+      dropout: 0.0
+      num_layers: 3
+      use_residual: true
+      use_layer_norm: false
+
+  loss:
+      loss_type: bce_with_logits_loss
+
+  metrics:
+    - metric_type: binary_accuracy
+      display_name: binary_accuracy
+    - metric_type: binary_distribution
+      display_name: binary_distribution
+    - metric_type: precision
+      display_name: precision
+      parameters:
+        task: binary
+    - metric_type: recall
+      display_name: recall
+      parameters:
+        task: binary
+
+  grouped_metrics:
+    - metric_type: binary_accuracy_trigger
+      display_name: binary_accuracy_trigger
+    - metric_type: mrr_trigger
+      display_name: mrr_trigger
+    - metric_type: precision_trigger
+      display_name: precision_trigger
+      parameters:
+        threshold: 0.0
+    - metric_type: recall_trigger
+      display_name: recall_trigger
+      parameters:
+        threshold: 0.0
+
+  optimizer:
+    optimizer_type: adamw
+    parameters:
+      lr: 0.0035
+      weight_decay: 0.002
+
+  scheduler:
+    scheduler_type: cosine
+    interval: epoch
+    parameters:
+      T_max: 500          # = max_epochs
+      eta_min: 0.00001
+
+callbacks:
+    - callback_type: early_stopping
+      parameters:
+        monitor: val/mrr_trigger
+        patience: 12
+        mode: "max"
+    - callback_type: model_checkpoint
+      parameters:
+        monitor: val/mrr_trigger
+        mode: "max"
+        save_top_k: 1
+        dirpath: /dbfs/tmp/nbraun/checkpoints/coview-mdm-prototype
+
+wandb_logger_parameters:
+  entity: "neilbraunheinrich-national-university-of-singapore"
+  project: "fast_gnn_benchmark"
+  reinit: true
+
+compilation_parameters:
+  use_compiled_torch: false
+  full_graph: false
+
+trainer_config:
+  max_epochs: 500
+  log_every_n_steps: 1
+  gradient_clip_val: 1.0
+  check_val_every_n_epoch: 4
+  limit_test_batches: 0
+  

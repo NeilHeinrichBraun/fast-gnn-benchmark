@@ -52,6 +52,7 @@ class DatasetType(Enum):
     OGBL_VESSEL = "ogbl-vessel"
     AMAZON_PRODUCTS = "amazon-products"
     COVIEW_MDM = "coview-mdm"
+    COVIEW_MDM_PROTOTYPE = "coview-mdm-prototype"
 
 
 class DataLoaderType(Enum):
