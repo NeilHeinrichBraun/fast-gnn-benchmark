@@ -45,7 +45,7 @@ model_parameters:
         cached: true
 
   link_predictor_parameters:
-    link_predictor_type: hadamard_mlp
+    link_predictor_type: mlp_cosine
     parameters:
       dropout: 0.0
       num_layers: 3
@@ -84,11 +84,19 @@ model_parameters:
       parameters:
         threshold: 0.0
 
+  # adjust_lr_fn=match_rms_adamw permet a Muon de reutiliser un lr/weight_decay tunes pour AdamW.
+  # weight_decay doit etre explicite, le defaut de torch.optim.Muon est 0.1.
+  # lr aligne sur gae_gcn_coview_mdm_mlp_cosine.yml (tete mlp_cosine, AdamW).
+  # Split attendu: 6 tenseurs pour Muon (poids .lin des 3 GCNConv + les 3 couches 128x128 du MLP),
+  # 6 pour AdamW (biais des 3 GCNConv + biais des 3 couches du MLP).
   optimizer:
-    optimizer_type: adamw
+    optimizer_type: muon
     parameters:
-      lr: 0.0035
+      lr: 0.0005
       weight_decay: 0.002
+      adjust_lr_fn: match_rms_adamw
+      adamw_lr: 0.0005
+      adamw_weight_decay: 0.002
 
   scheduler:
     scheduler_type: cosine
@@ -108,7 +116,10 @@ callbacks:
         monitor: val/mrr_trigger
         mode: "max"
         save_top_k: 1
-        dirpath: /dbfs/tmp/nbraun/checkpoints/coview-mdm-128
+        dirpath: /dbfs/tmp/nbraun/checkpoints/coview-mdm-128-muon-mlp-cosine
+    - callback_type: learning_rate_monitor
+      parameters:
+        logging_interval: epoch
 
 wandb_logger_parameters:
   entity: "neilbraunheinrich-national-university-of-singapore"
@@ -125,4 +136,3 @@ trainer_config:
   gradient_clip_val: 1.0
   check_val_every_n_epoch: 4
   limit_test_batches: 0
-  

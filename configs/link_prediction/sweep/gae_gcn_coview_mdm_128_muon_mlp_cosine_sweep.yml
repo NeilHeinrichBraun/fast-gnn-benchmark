@@ -1,0 +1,58 @@
+command:
+  - python
+  - /Workspace/Users/neil.braun@mirakl.com/.bundle/fast-gnn-benchmark/dev/files/scripts/wandb_sweep_agent.py
+
+name: gae_gcn_coview_mdm_128_muon_mlp_cosine_sweep
+
+method: bayes
+
+metric:
+  goal: maximize
+  name: val/mrr_trigger
+
+run_cap: 30
+
+early_terminate:
+  type: hyperband
+  min_iter: 10
+  eta: 3
+
+parameters:
+  base_config_file:
+    values:
+      - /Workspace/Users/neil.braun@mirakl.com/.bundle/fast-gnn-benchmark/dev/files/configs/link_prediction/gae_gcn_coview_mdm_128_muon_mlp_cosine.yml
+
+  trainer_config:
+    parameters:
+      max_time:
+        value: "00:00:40:00"
+      max_epochs:
+        value: 500
+
+  model_parameters:
+    parameters:
+      link_predictor_parameters:
+        parameters:
+          parameters:
+            parameters:
+              num_layers:
+                values: [2, 3, 4]
+
+      optimizer:
+        parameters:
+          parameters:
+            parameters:
+              lr:
+                distribution: "log_uniform_values"
+                min: 0.0005
+                max: 0.01
+              weight_decay:
+                distribution: "log_uniform_values"
+                min: 0.000001
+                max: 0.01
+              adamw_lr:
+                distribution: "log_uniform_values"
+                min: 0.0001
+                max: 0.005
+              momentum:
+                values: [0.9, 0.95, 0.98]

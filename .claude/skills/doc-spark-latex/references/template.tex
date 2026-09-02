@@ -1,0 +1,64 @@
+% ---------------------------------------------------------------------------
+% Squelette de documentation d'une fonction PySpark.
+% Fragment insérable dans rapport_stage.tex : pas de préambule, pas de document.
+% Supprimez toute section sans contenu réel (pas de « néant », pas de « N/A »).
+% ---------------------------------------------------------------------------
+
+\subsection{\texttt{<nom\_fonction>}}
+\label{subsec:fn-<nom-fonction-sans-underscore>}
+
+<Une à deux phrases : ce que la fonction produit, à partir de quoi. Pas de mise en
+contexte, pas de reformulation de ce que les sections suivantes disent déjà.>
+
+\paragraph{Signature.}\leavevmode\par
+\begin{lstlisting}[language=Python]
+def <nom_fonction>(<params>) -> DataFrame:
+\end{lstlisting}
+
+\paragraph{Arguments.}
+\begin{center}
+\small
+\begin{tabular}{@{}llp{7.6cm}@{}}
+\toprule
+\textbf{Argument} & \textbf{Type} & \textbf{Rôle} \\
+\midrule
+\code{<arg>} & \code{<type>} & <rôle ; mentionner la valeur par défaut> \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% Si la fonction ne prend qu'un ou deux arguments, remplacer le tableau par :
+% \begin{itemize}[nosep,leftmargin=*]
+%   \item \code{<arg>} (\code{<type>}) --- <rôle>.
+% \end{itemize}
+
+\paragraph{Tables lues.}
+\begin{itemize}[nosep,leftmargin=*]
+  \item \code{<catalog>.<schema>.<table>} --- <ce que la table contient>.
+        Colonnes utilisées : \code{<c1>}, \code{<c2>}, \code{<c3>}.
+\end{itemize}
+
+% Pour un DataFrame reçu en argument (table amont, pas lue ici) :
+% \item \code{<arg>} --- produit par \code{<fonction\_amont>}
+%       (\ref{subsec:fn-<...>}). Colonnes attendues : \code{<...>}.
+
+\paragraph{Traitement.}
+\begin{itemize}[nosep,leftmargin=*]
+  \item <Un bloc logique (variable nommée, colonne calculée) par tiret, une
+        phrase courte et précise chacun : ce que le bloc représente + son info
+        clé (filtre décisif, type de jointure, clé). Pas un tiret par appel
+        Spark ; une expression chaînée simple tient en un ou deux tirets.>
+\end{itemize}
+
+\paragraph{Table produite.}
+Une ligne par <granularité : produit, session, paire de produits\ldots>.
+\begin{center}
+\small
+\begin{tabular}{@{}llp{6.8cm}@{}}
+\toprule
+\textbf{Colonne} & \textbf{Type} & \textbf{Provenance et sens} \\
+\midrule
+\code{<col>} & \code{<type>} & <table.colonne d'origine, ou expression> \\
+\bottomrule
+\end{tabular}
+\end{center}

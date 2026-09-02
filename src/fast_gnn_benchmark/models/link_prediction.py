@@ -4,7 +4,11 @@ from torch_geometric.data import Data
 from fast_gnn_benchmark.models.backbones import load_backbone
 from fast_gnn_benchmark.models.base_model import BaseGNN
 from fast_gnn_benchmark.models.embedder import load_embedder
-from fast_gnn_benchmark.models.link_prediction_heads import CosineSimilarityClassifier, Hadamard_MLPPredictor
+from fast_gnn_benchmark.models.link_prediction_heads import (
+    CosineSimilarityClassifier,
+    Hadamard_MLPPredictor,
+    MLP_CosinePredictor,
+)
 from fast_gnn_benchmark.metrics.base_metrics import MetricsCollection
 from fast_gnn_benchmark.schemas.model import (
     ArchitectureParametersChoices,
@@ -35,13 +39,16 @@ class LinkPredictorBase(torch.nn.Module):
             case LinkPredictorType.COSINE_SIMILARITY:
                 return CosineSimilarityClassifier()
 
+            case LinkPredictorType.MLP_COSINE:
+                return MLP_CosinePredictor(
+                    hidden_dim=self.architecture_parameters.output_dim,
+                    **self.link_predictor_parameters.parameters,
+                )
+
             case LinkPredictorType.HADAMARD_MLP:
                 return Hadamard_MLPPredictor(
                     hidden_dim=self.architecture_parameters.output_dim,
-                    dropout=self.link_predictor_parameters.parameters["dropout"],
-                    num_layers=self.link_predictor_parameters.parameters["num_layers"],
-                    use_residual=self.link_predictor_parameters.parameters["use_residual"],
-                    use_layer_norm=self.link_predictor_parameters.parameters["use_layer_norm"],
+                    **self.link_predictor_parameters.parameters,
                 )
 
             case _:

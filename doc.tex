@@ -1,0 +1,980 @@
+% !TEX program = pdflatex
+% Documentation des fonctions Spark du pipeline de construction du graphe.
+% Fragments générés par le skill .claude/skills/doc-spark-latex.
+%
+% Compilation : pdflatex doc.tex
+
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[french]{babel}
+\usepackage{lmodern}
+\usepackage[margin=2.4cm]{geometry}
+\usepackage{amsmath,amssymb,amsfonts,mathtools}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+\usepackage{caption}
+
+% Désactive les espacements automatiques du français devant ; : ! ?
+\shorthandoff*{;:!?}
+
+\definecolor{codebg}{RGB}{247,247,250}
+\definecolor{codekw}{RGB}{20,80,160}
+\definecolor{codecm}{RGB}{110,120,130}
+\definecolor{codestr}{RGB}{150,60,60}
+
+\lstdefinestyle{conf}{
+  backgroundcolor=\color{codebg},
+  basicstyle=\ttfamily\scriptsize,
+  keywordstyle=\color{codekw},
+  commentstyle=\color{codecm}\itshape,
+  stringstyle=\color{codestr},
+  breaklines=true,
+  columns=fullflexible,
+  frame=single,
+  framesep=4pt,
+  rulecolor=\color{codecm!40},
+  numbers=none,
+  showstringspaces=false,
+  tabsize=2,
+}
+\lstset{style=conf}
+
+\newcommand{\code}[1]{\texttt{\small #1}}
+
+\title{\vspace{-1.5cm}\textbf{Documentation du pipeline Spark}\\[0.3cm]
+\large Construction du graphe de co-vues --- fonctions d'extraction}
+
+\author{Neil Braun\\[0.15cm]
+\small Mirakl --- Data Science / Target2Sell}
+
+\date{\small Août 2026}
+
+\begin{document}
+
+\maketitle
+
+%======================================================================
+\section{Extraction des référentiels}
+
+\subsection{\texttt{get\_customer}}
+\label{subsec:fn-get-customer}
+
+Résout, pour un client donné, son \code{publicId} T2S et son \code{publisherId}
+Artemis.
+
+\paragraph{Signature.}\leavevmode\par
+\begin{lstlisting}[language=Python]
+def get_customer(spark: SparkSession, customer_shortname: str) -> DataFrame:
+\end{lstlisting}
+
+\paragraph{Arguments.}
+\begin{itemize}[nosep,leftmargin=*]
+  \item \code{spark} (\code{SparkSession}) --- session utilisée pour ouvrir les
+        tables du catalogue.
+  \item \code{customer\_shortname} (\code{str}) --- nom court du client, par exemple
+        \code{maisonsdumonde}. Sert de filtre unique sur le référentiel.
+\end{itemize}
+
+\paragraph{Tables lues.}
+\begin{itemize}[nosep,leftmargin=*]
+  \item \code{mirakl\_ai.ds\_etl\_prod.t2s\_gold\_customer} --- référentiel des
+        clients T2S. Colonnes utilisées : \code{shortName} (filtre),
+        \code{publicId}, \code{databaseName}.
+  \item \code{mirakl\_data\_platform.prod\_data\_platform\_silver.artemis\_insights\_customer}
+        --- clients côté Artemis. Colonnes utilisées : \code{id},
+        \code{public\_id}, \code{\_\_k8s\_namespace} (filtre d'environnement).
+  \item \code{mirakl\_data\_platform.prod\_data\_platform\_silver.artemis\_publisher}
+        --- \emph{publishers} Artemis. Colonnes utilisées : \code{id},
+        \code{insights\_customer\_id} (clé de jointure).
+\end{itemize}
+
+\paragraph{Traitement.}
+\begin{itemize}[nosep,leftmargin=*]
+  \item \code{customers} : client T2S filtré sur \code{shortName}, projeté sur
+        \code{publicId} et \code{databaseName} (renommé \code{db\_name}).
+  \item \code{publishers} : clients Artemis rattachés aux \emph{publishers} par
+        jointure \code{left} sur \code{insights\_customer\_id}, restreints au
+        namespace \code{artemis-prod}, projetés sur \code{publisherId} et
+        \code{public\_id}.
+  \item Jointure finale \code{inner} \code{customers}/\code{publishers} sur
+        \code{publicId} = \code{public\_id} ; sélection des quatre colonnes de
+        sortie.
+\end{itemize}
+
+\paragraph{Table produite.}
+Une ligne par couple client\,/\,\emph{publisher} ; unicité non garantie par le code.
+Types déduits du nommage, non relus dans le catalogue.
+
+\begin{center}
+\small
+\begin{tabular}{@{}llp{6.8cm}@{}}
+\toprule
+\textbf{Colonne} & \textbf{Type} & \textbf{Provenance et sens} \\
+\midrule
+\code{customer\_shortname} & \code{string} & \code{t2s\_gold\_customer.shortName} ; recopie de l'argument \\
+\code{customerId}          & \code{string} & \code{t2s\_gold\_customer.publicId} ; identifiant public T2S \\
+\code{db\_name}            & \code{string} & \code{t2s\_gold\_customer.databaseName} ; base à interroger en aval \\
+\code{publisherId}         & \code{long}   & \code{artemis\_publisher.id} ; nul si le client n'a pas de \emph{publisher} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Complètent le référentiel client par le catalogue produit et les embeddings, à partir
+des mêmes \code{db\_names}.
+
+\subsection{\texttt{get\_products}}
+\label{subsec:fn-get-products}
+
+Charge les produits maîtres actifs et diffusables (\code{parentId == -1}) du
+catalogue, avec leurs métadonnées d'affichage.
+
+\paragraph{Signature.}\leavevmode\par
+\begin{lstlisting}[language=Python]
+def get_products(spark: SparkSession, db_names: list[str]) -> DataFrame:
+\end{lstlisting}
+
+\paragraph{Arguments.}
+\begin{itemize}[nosep,leftmargin=*]
+  \item \code{spark} (\code{SparkSession}).
+  \item \code{db\_names} (\code{list[str]}) --- bases filtrées via \code{isin}.
+\end{itemize}
+
+\paragraph{Tables lues.}
+\begin{itemize}[nosep,leftmargin=*]
+  \item \code{mirakl\_ai.ds\_etl\_prod.t2s\_mongo\_product\_0\_current} --- catalogue
+        produit. Colonnes utilisées : \code{db\_name}, \code{isActive},
+        \code{isOkInStream}, \code{parentId} (filtres), \code{internalId},
+        \code{fwProductId}, \code{name}, \code{imageUrl}.
+\end{itemize}
+
+\paragraph{Traitement.}
+\begin{itemize}[nosep,leftmargin=*]
+  \item Filtre le catalogue sur \code{db\_name.isin(db\_names)}, \code{isActive},
+        \code{isOkInStream} et \code{parentId == -1} (produit maître) ; cast
+        \code{internalId} en \code{bigint} et projection des quatre colonnes de
+        sortie.
+\end{itemize}
+
+\paragraph{Table produite.}
+Une ligne par produit maître actif. Types non castés déduits du nommage, non relus
+dans le catalogue.
+\begin{center}
+\small
+\begin{tabular}{@{}llp{6.8cm}@{}}
+\toprule
+\textbf{Colonne} & \textbf{Type} & \textbf{Provenance et sens} \\
+\midrule
+\code{internalId} & \code{bigint} & cast explicite depuis \code{t2s\_mongo\_product\_0\_current.internalId} \\
+\code{fwProductId} & \code{string} & \code{t2s\_mongo\_product\_0\_current.fwProductId} \\
+\code{name} & \code{string} & \code{t2s\_mongo\_product\_0\_current.name} \\
+\code{imageUrl} & \code{string} & \code{t2s\_mongo\_product\_0\_current.imageUrl} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{\texttt{get\_embeddings}}
+\label{subsec:fn-get-embeddings}
+
+Charge les embeddings d'un modèle donné (\code{last\_model\_id} fixé dans le code)
+pour les produits des clients demandés.
+
+\paragraph{Signature.}\leavevmode\par
+\begin{lstlisting}[language=Python]
+def get_embeddings(spark: SparkSession, db_names: list[str]) -> DataFrame:
+\end{lstlisting}
+
+\paragraph{Arguments.}
+\begin{itemize}[nosep,leftmargin=*]
+  \item \code{spark} (\code{SparkSession}).
+  \item \code{db\_names} (\code{list[str]}) --- bases filtrées via \code{isin}.
+\end{itemize}
+
+\paragraph{Tables lues.}
+\begin{itemize}[nosep,leftmargin=*]
+  \item \code{mirakl\_ai.ds\_artemis\_prod.product\_embeddings} --- embeddings
+        produit. Colonnes utilisées : \code{db\_name}, \code{last\_model\_id}
+        (filtres), \code{internalId}, \code{embeddings}, \code{last\_update\_date}.
+\end{itemize}
+
+\paragraph{Traitement.}
+\begin{itemize}[nosep,leftmargin=*]
+  \item Filtre les embeddings sur \code{db\_name.isin(db\_names)} et
+        \code{last\_model\_id == "06bbe5791147457aa395960da021c05c"} (modèle
+        codé en dur) ; projection de \code{internalId}, \code{embeddings},
+        \code{last\_update\_date}.
+\end{itemize}
+
+\paragraph{Table produite.}
+Une ligne par \code{internalId}, sous réserve d'un seul embedding par produit pour ce
+\code{last\_model\_id} --- non garanti par le code. Le docstring évoque des produits
+actifs, mais aucun filtre \code{isActive}/\code{parentId} n'apparaît ici : ce
+filtrage, s'il existe, vient d'amont (table déjà restreinte, ou jointure ultérieure
+avec \ref{subsec:fn-get-products}).
+\begin{center}
+\small
+\begin{tabular}{@{}llp{6.8cm}@{}}
+\toprule
+\textbf{Colonne} & \textbf{Type} & \textbf{Provenance et sens} \\
+\midrule
+\code{internalId} & \code{bigint} & \code{product\_embeddings.internalId} \\
+\code{embeddings} & \code{array<double>} & \code{product\_embeddings.embeddings} ; vecteur de features \\
+\code{last\_update\_date} & \code{timestamp} & \code{product\_embeddings.last\_update\_date} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+%======================================================================
+\section{Tracking, sessionisation et graphe de co-vues}
+
+Le pipeline enchaîne \code{get\_views} $\to$ \code{sessionize\_views} $\to$
+\code{split\_sessions} $\to$ \code{build\_co\_view\_edges} $\to$
+\code{remove\_train\_edges}.
+
+\subsection{\texttt{get\_views}}
+\label{subsec:fn-get-views}
+
+Charge le tracking brut (non nettoyé) des vues produit, avec réconciliation de
+l'identifiant utilisateur via la table des utilisateurs fusionnés.
+
+\paragraph{Signature.}\leavevmode\par
+\begin{lstlisting}[language=Python]
+def get_views(spark: SparkSession, customer_ids: list[str], start_date: date, end_date: date) -> DataFrame:
+\end{lstlisting}
+
+\paragraph{Arguments.}
+\begin{itemize}[nosep,leftmargin=*]
+  \item \code{spark} (\code{SparkSession}).
+  \item \code{customer\_ids} (\code{list[str]}) --- clients filtrés via \code{isin}.
+  \item \code{start\_date}, \code{end\_date} (\code{date}) --- bornes de
+        \code{emitted.between(...)}, incluses.
+\end{itemize}
+
+\paragraph{Tables lues.}
+\begin{itemize}[nosep,leftmargin=*]
+  \item \code{mirakl\_data\_platform.prod\_data\_platform\_silver.t2s\_merged\_user}
+        --- réconciliation d'identifiants utilisateur. Colonnes utilisées :
+        \code{customerId} (filtre), \code{masterId}, \code{sourceId}.
+  \item \code{mirakl\_data\_platform.prod\_data\_platform\_silver.t2s\_tracking\_product\_display\_page\_event\_fct}
+        --- événements de vue produit. Colonnes utilisées : \code{customerId},
+        \code{emitted}, \code{user.internalId}, \code{masterProductInternalId}
+        (filtres et projections).
+\end{itemize}
+
+\paragraph{Traitement.}
+\begin{itemize}[nosep,leftmargin=*]
+  \item \code{df\_merged\_user} : clients filtrés sur \code{customerId},
+        projetés sur \code{masterId} $\to$ \code{userMasterId} et
+        \code{sourceId} $\to$ \code{userId}.
+  \item Bloc principal : événements de tracking filtrés sur \code{customerId},
+        \code{emitted} (fenêtre \code{start\_date}--\code{end\_date}),
+        \code{user.internalId} et \code{masterProductInternalId} non nuls ;
+        \code{masterProductInternalId} renommé \code{internalId} ; \code{userId}
+        rattaché à l'id maître par jointure \code{left} +
+        \code{coalesce(userMasterId, userId)} avec \code{df\_merged\_user}.
+\end{itemize}
+
+\paragraph{Table produite.}
+Une ligne par événement de vue, non dédupliquée.
+\begin{center}
+\small
+\begin{tabular}{@{}llp{6.8cm}@{}}
+\toprule
+\textbf{Colonne} & \textbf{Type} & \textbf{Provenance et sens} \\
+\midrule
+\code{emitted} & \code{timestamp} & horodatage de l'événement \\
+\code{internalId} & \code{bigint} & \code{masterProductInternalId} renommé \\
+\code{userId} & \code{bigint} & id utilisateur réconcilié (\code{user.internalId} ou \code{masterId}), sert uniquement à l'agrégation en aval \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{\texttt{sessionize\_views}}
+\label{subsec:fn-sessionize-views}
+
+Découpe les vues d'un utilisateur en sessions à partir d'un délai d'inactivité, et
+ajoute \code{session\_id} et \code{session\_start} à chaque vue.
+
+\paragraph{Signature.}\leavevmode\par
+\begin{lstlisting}[language=Python]
+def sessionize_views(df_views: DataFrame, session_timeout: int = 1800) -> DataFrame:
+\end{lstlisting}
+
+\paragraph{Arguments.}
+\begin{itemize}[nosep,leftmargin=*]
+  \item \code{df\_views} (\code{DataFrame}) --- produit par \code{get\_views}
+        (\ref{subsec:fn-get-views}). Colonnes attendues : \code{userId},
+        \code{internalId}, \code{emitted}.
+  \item \code{session\_timeout} (\code{int}, défaut \code{1800}) --- délai
+        d'inactivité en secondes au-delà duquel une nouvelle session démarre.
+\end{itemize}
+
+\paragraph{Traitement.}
+\begin{itemize}[nosep,leftmargin=*]
+  \item \code{seconds\_since\_last} : écart en secondes avec la vue précédente du
+        même utilisateur (fenêtre \code{partitionBy(userId).orderBy(emitted,
+        internalId)}).
+  \item \code{is\_new\_session} : vaut \code{1} si première vue ou écart
+        \code{> session\_timeout}, sinon \code{0}.
+  \item \code{session\_id} : somme cumulée de \code{is\_new\_session} sur la
+        fenêtre utilisateur --- numérote les sessions.
+  \item \code{session\_start} : \code{min(emitted)} de la session.
+\end{itemize}
+
+\paragraph{Table produite.}
+Une ligne par vue (même granularité que \ref{subsec:fn-get-views}), enrichie de
+\code{session\_id} et \code{session\_start}.
+\begin{center}
+\small
+\begin{tabular}{@{}llp{6.8cm}@{}}
+\toprule
+\textbf{Colonne} & \textbf{Type} & \textbf{Provenance et sens} \\
+\midrule
+\code{userId} & \code{bigint} & recopié de \code{df\_views} \\
+\code{session\_id} & \code{long} & compteur cumulé de nouvelles sessions par utilisateur \\
+\code{internalId} & \code{bigint} & recopié de \code{df\_views} \\
+\code{emitted} & \code{timestamp} & recopié de \code{df\_views} \\
+\code{session\_start} & \code{timestamp} & \code{min(emitted)} de la session \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{\texttt{split\_sessions}}
+\label{subsec:fn-split-sessions}
+
+Assigne chaque session à \code{train}, \code{val} ou \code{test} selon deux dates
+seuils, et reporte ce \code{split} sur chaque vue.
+
+\paragraph{Signature.}\leavevmode\par
+\begin{lstlisting}[language=Python]
+def split_sessions(df_sessionized: DataFrame, cutoff_train: date, cutoff_val: date) -> DataFrame:
+\end{lstlisting}
+
+\paragraph{Arguments.}
+\begin{itemize}[nosep,leftmargin=*]
+  \item \code{df\_sessionized} (\code{DataFrame}) --- produit par
+        \code{sessionize\_views} (\ref{subsec:fn-sessionize-views}).
+  \item \code{cutoff\_train}, \code{cutoff\_val} (\code{date}) --- seuils de
+        \code{session\_start} : \code{< cutoff\_train} $\to$ \code{train},
+        entre les deux $\to$ \code{val}, \code{>= cutoff\_val} $\to$ \code{test}.
+\end{itemize}
+
+\paragraph{Traitement.}
+\begin{itemize}[nosep,leftmargin=*]
+  \item \code{df\_sessions} : sessions dédupliquées
+        (\code{userId}, \code{session\_id}, \code{session\_start}), étiquetées
+        \code{split} selon les seuils \code{cutoff\_train} / \code{cutoff\_val}.
+  \item Jointure \code{inner} pour reporter \code{split} sur chaque vue de
+        \ref{subsec:fn-sessionize-views}.
+\end{itemize}
+
+\paragraph{Table produite.}
+Même granularité que \ref{subsec:fn-sessionize-views} (une ligne par vue), avec la
+colonne \code{split} en plus ; les autres colonnes sont inchangées.
+\begin{center}
+\small
+\begin{tabular}{@{}llp{6.8cm}@{}}
+\toprule
+\textbf{Colonne} & \textbf{Type} & \textbf{Provenance et sens} \\
+\midrule
+\code{split} & \code{string} & \code{train} / \code{val} / \code{test}, dérivé de \code{session\_start} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{\texttt{build\_co\_view\_edges}}
+\label{subsec:fn-build-co-view-edges}
+
+Construit les arêtes de co-vue : pour chaque paire de produits vus dans la même
+session, un poids et un nombre d'occurrences.
+
+\paragraph{Signature.}\leavevmode\par
+\begin{lstlisting}[language=Python]
+def build_co_view_edges(df_sessionized: DataFrame) -> DataFrame:
+\end{lstlisting}
+
+\paragraph{Arguments.}
+\begin{itemize}[nosep,leftmargin=*]
+  \item \code{df\_sessionized} (\code{DataFrame}) --- typiquement un sous-ensemble de
+        \ref{subsec:fn-split-sessions} filtré sur un \code{split}. Colonnes
+        attendues : \code{userId}, \code{session\_id}, \code{internalId}.
+\end{itemize}
+
+\noindent Contrôlé par la constante module \code{USE\_SESSION\_WEIGHT\_NORM}
+(\code{bool}, actuellement \code{False}) : bascule le calcul de \code{pair\_weight}
+entre poids uniforme et normalisation par taille de session.
+
+\paragraph{Traitement.}
+\begin{itemize}[nosep,leftmargin=*]
+  \item \code{df\_dedup} : vues dédupliquées sur \code{(userId, session\_id,
+        internalId)}, enrichies de \code{session\_size} (nombre de produits
+        distincts de la session).
+  \item \code{df\_pairs} : auto-jointure \code{inner} sur \code{(userId,
+        session\_id)} avec \code{L.internalId < R.internalId} pour générer les
+        paires non ordonnées, chacune pondérée par \code{pair\_weight}
+        (uniforme, ou normalisé par \code{session\_size} si
+        \code{USE\_SESSION\_WEIGHT\_NORM}).
+  \item Agrégation finale par \code{(product\_A, product\_B)} : somme des
+        poids (\code{weight}) et comptage des occurrences (\code{raw\_count}).
+\end{itemize}
+
+\paragraph{Table produite.}
+Une ligne par paire de produits co-vus, non orientée (\code{product\_A < product\_B}).
+\begin{center}
+\small
+\begin{tabular}{@{}llp{6.8cm}@{}}
+\toprule
+\textbf{Colonne} & \textbf{Type} & \textbf{Provenance et sens} \\
+\midrule
+\code{product\_A} & \code{bigint} & \code{internalId} le plus petit de la paire \\
+\code{product\_B} & \code{bigint} & \code{internalId} le plus grand de la paire \\
+\code{weight} & \code{double} & somme de \code{pair\_weight} sur les sessions co-occurrentes \\
+\code{raw\_count} & \code{long} & nombre de sessions où la paire co-occurre \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{\texttt{remove\_train\_edges}}
+\label{subsec:fn-remove-train-edges}
+
+Retire de \code{df\_edges} toute paire déjà présente dans \code{df\_train\_edges}.
+
+\paragraph{Signature.}\leavevmode\par
+\begin{lstlisting}[language=Python]
+def remove_train_edges(df_edges: DataFrame, df_train_edges: DataFrame) -> DataFrame:
+\end{lstlisting}
+
+\paragraph{Arguments.}
+\begin{itemize}[nosep,leftmargin=*]
+  \item \code{df\_edges} (\code{DataFrame}) --- arêtes produites par
+        \ref{subsec:fn-build-co-view-edges} (typiquement val ou test).
+  \item \code{df\_train\_edges} (\code{DataFrame}) --- arêtes d'entraînement, même
+        origine. Colonnes utilisées : \code{product\_A}, \code{product\_B}.
+\end{itemize}
+
+\paragraph{Traitement.}
+\begin{itemize}[nosep,leftmargin=*]
+  \item Jointure \code{left\_anti} sur \code{(product\_A, product\_B)}.
+\end{itemize}
+
+\paragraph{Table produite.}
+Même schéma que \ref{subsec:fn-build-co-view-edges}, restreint aux paires absentes de
+\code{df\_train\_edges}.
+
+\subsection{\texttt{build}}
+\label{subsec:fn-build}
+
+Enchaîne \code{build\_co\_view\_edges} et, si des arêtes d'entraînement sont
+fournies, \code{remove\_train\_edges}, pour produire les arêtes d'un split.
+
+\paragraph{Signature.}\leavevmode\par
+\begin{lstlisting}[language=Python]
+def build(df_subset, df_train_edges=None):
+\end{lstlisting}
+
+\paragraph{Arguments.}
+\begin{itemize}[nosep,leftmargin=*]
+  \item \code{df\_subset} (non annoté, \code{DataFrame}) --- sous-ensemble de
+        \ref{subsec:fn-split-sessions} filtré sur un \code{split}. Colonnes
+        attendues : \code{userId}, \code{session\_id}, \code{internalId}.
+  \item \code{df\_train\_edges} (non annoté, \code{DataFrame}, défaut \code{None})
+        --- arêtes d'entraînement déjà construites, à exclure du résultat.
+\end{itemize}
+
+\paragraph{Traitement.}
+\begin{itemize}[nosep,leftmargin=*]
+  \item Construit les arêtes de co-vue de \code{df\_subset} via
+        \code{build\_co\_view\_edges} (\ref{subsec:fn-build-co-view-edges}).
+  \item Si \code{df\_train\_edges} n'est pas \code{None}, retire de ces arêtes
+        celles déjà présentes dans \code{df\_train\_edges} via
+        \code{remove\_train\_edges} (\ref{subsec:fn-remove-train-edges}).
+\end{itemize}
+
+\paragraph{Table produite.}
+Même schéma que \ref{subsec:fn-build-co-view-edges}. Dans l'appel observé,
+\code{build} sert aux trois splits : sans \code{df\_train\_edges} pour
+\code{train}, puis avec les arêtes de \code{train} pour \code{val} et pour
+\code{test}. Seule la fuite avec \code{train} est donc retirée ; une arête commune
+à \code{val} et \code{test} n'est éliminée par aucun des deux appels.
+
+\subsection{\texttt{count\_nodes}}
+\label{subsec:fn-count-nodes}
+
+Compte le nombre de nœuds distincts apparaissant dans au moins une arête de
+\code{df\_edges}.
+
+\paragraph{Signature.}\leavevmode\par
+\begin{lstlisting}[language=Python]
+def count_nodes(df_edges: DataFrame) -> int:
+\end{lstlisting}
+
+\paragraph{Arguments.}
+\begin{itemize}[nosep,leftmargin=*]
+  \item \code{df\_edges} (\code{DataFrame}) --- arêtes, typiquement produites par
+        \code{build} (\ref{subsec:fn-build}) ou par
+        \ref{subsec:fn-build-co-view-edges}. Colonnes utilisées :
+        \code{product\_A}, \code{product\_B}.
+\end{itemize}
+
+\paragraph{Traitement.}
+\begin{itemize}[nosep,leftmargin=*]
+  \item Union des colonnes \code{product\_A} et \code{product\_B} (renommées
+        \code{node}), dédupliquée (\code{distinct}) --- ensemble des nœuds
+        apparaissant dans au moins une arête.
+\end{itemize}
+
+\paragraph{Sortie.}
+Retourne un entier (\code{count()} sur le résultat), pas un \code{DataFrame} : le
+nombre de nœuds distincts du graphe défini par \code{df\_edges}.
+
+%======================================================================
+\section{Remappage des identifiants et mise en forme tensorielle (pandas / PyTorch)}
+
+Le pipeline bascule ici en \code{pandas} (conversion depuis Spark non visible dans
+ce fragment) : \code{build\_node\_mapping} $\to$ \code{remap\_edges} $\to$
+\code{edges\_to\_tensors}.
+
+\subsection{\texttt{build\_node\_mapping}}
+\label{subsec:fn-build-node-mapping}
+
+Construit, à partir d'un nombre arbitraire de DataFrames d'arêtes, une table de
+correspondance \code{internalId} $\to$ index contigu (\code{0..N-1}).
+
+\paragraph{Signature.}\leavevmode\par
+\begin{lstlisting}[language=Python]
+def build_node_mapping(*edge_dfs: pd.DataFrame) -> dict[int, int]:
+\end{lstlisting}
+
+\paragraph{Arguments.}
+\begin{itemize}[nosep,leftmargin=*]
+  \item \code{*edge\_dfs} (\code{pd.DataFrame}, variadique) --- un ou plusieurs
+        DataFrames d'arêtes (train, val, test), chacun attendu avec les colonnes
+        \code{product\_A}, \code{product\_B}.
+\end{itemize}
+
+\paragraph{Traitement.}
+\begin{itemize}[nosep,leftmargin=*]
+  \item \code{all\_nodes} : identifiants uniques de \code{product\_A} /
+        \code{product\_B} de tous les \code{edge\_dfs}, triés par valeur.
+  \item \code{node2idx} : index contigu (\code{enumerate}) sur ces
+        identifiants triés --- déterministe quel que soit l'ordre des
+        \code{edge\_dfs} passés.
+\end{itemize}
+
+\paragraph{Sortie.}
+Retourne un \code{dict[int, int]}, pas un \code{DataFrame} : \code{internalId}
+$\to$ index contigu \code{0..N-1}. Le tri préalable rend le mapping déterministe
+quel que soit l'ordre des \code{edge\_dfs} passés, tant que leur ensemble est le
+même.
+
+\subsection{\texttt{remap\_edges}}
+\label{subsec:fn-remap-edges}
+
+Remplace \code{product\_A} et \code{product\_B} par leurs index contigus dans un
+DataFrame d'arêtes.
+
+\paragraph{Signature.}\leavevmode\par
+\begin{lstlisting}[language=Python]
+def remap_edges(df: pd.DataFrame, node2idx: dict[int, int]) -> pd.DataFrame:
+\end{lstlisting}
+
+\paragraph{Arguments.}
+\begin{itemize}[nosep,leftmargin=*]
+  \item \code{df} (\code{pd.DataFrame}) --- DataFrame d'arêtes, colonnes
+        \code{product\_A}, \code{product\_B} attendues.
+  \item \code{node2idx} (\code{dict[int, int]}) --- mapping produit par
+        \code{build\_node\_mapping} (\ref{subsec:fn-build-node-mapping}).
+\end{itemize}
+
+\paragraph{Traitement.}
+\begin{itemize}[nosep,leftmargin=*]
+  \item Copie \code{df}, puis remplace \code{product\_A} et \code{product\_B}
+        par leur image dans \code{node2idx} (\code{.map}).
+\end{itemize}
+
+\paragraph{Table produite.}
+Même schéma que \code{df} en entrée ; \code{product\_A} et \code{product\_B}
+portent désormais des index contigus, les autres colonnes sont inchangées. Un
+\code{internalId} absent de \code{node2idx} n'est pas signalé : \code{.map}
+produit silencieusement \code{NaN} pour toute clé manquante.
+
+\subsection{\texttt{edges\_to\_tensors}}
+\label{subsec:fn-edges-to-tensors}
+
+Convertit un DataFrame d'arêtes remappées en tensors \code{edge\_index} /
+\code{edge\_attr} au format PyG.
+
+\paragraph{Signature.}\leavevmode\par
+\begin{lstlisting}[language=Python]
+def edges_to_tensors(df: pd.DataFrame, symmetric: bool = True) -> tuple[torch.Tensor, torch.Tensor]:
+\end{lstlisting}
+
+\paragraph{Arguments.}
+\begin{itemize}[nosep,leftmargin=*]
+  \item \code{df} (\code{pd.DataFrame}) --- arêtes remappées, produites par
+        \code{remap\_edges} (\ref{subsec:fn-remap-edges}). Colonnes utilisées :
+        \code{product\_A}, \code{product\_B}, \code{weight}.
+  \item \code{symmetric} (\code{bool}, défaut \code{True}) --- si vrai, ajoute
+        chaque arête dans les deux sens (\code{A$\to$B} et \code{B$\to$A}).
+\end{itemize}
+
+\paragraph{Traitement.}
+\begin{itemize}[nosep,leftmargin=*]
+  \item Extrait \code{src}, \code{dst}, \code{weight} des colonnes
+        \code{product\_A}, \code{product\_B}, \code{weight}.
+  \item Si \code{symmetric} : empile les deux sens (\code{src$\to$dst} et
+        \code{dst$\to$src}) et duplique les poids ; sinon un seul sens.
+  \item Cast \code{edge\_index} en \code{torch.long}, \code{edge\_attr} en
+        \code{torch.float}.
+\end{itemize}
+
+\paragraph{Sortie.}
+Retourne le tuple \code{(edge\_index, edge\_attr)}, pas un \code{DataFrame}.
+\code{edge\_index} est de forme \code{[2, E]} si \code{symmetric=False}, ou
+\code{[2, 2E]} si \code{symmetric=True} (\code{E} = nombre de lignes de
+\code{df}) ; \code{edge\_attr} est de forme assortie (\code{[E]} ou
+\code{[2E]}). Le docstring annonce \code{[2, E]} et \code{[E]} dans tous les cas,
+ce qui n'est exact que pour \code{symmetric=False}.
+
+%======================================================================
+\section{Rapprochement vues et exécutions de recommandation (ads)}
+
+\subsection{\texttt{recommended\_products\_for\_t2s\_user}}
+\label{subsec:fn-recommended-products-for-t2s-user}
+
+Associe chaque vue produit trackée à l'exécution de recommandation
+(\code{adlog}) qui l'a vraisemblablement générée, en appariant sur produit,
+cookie, client et une fenêtre de 3 secondes autour de l'horodatage.
+
+\paragraph{Signature.}\leavevmode\par
+\begin{lstlisting}[language=Python]
+def recommended_products_for_t2s_user(
+    spark: SparkSession,
+    customer_ids: list[str],
+    publisher_ids: list[str],
+    start_date: date,
+    end_date: date,
+) -> DataFrame:
+\end{lstlisting}
+
+\paragraph{Arguments.}
+\begin{itemize}[nosep,leftmargin=*]
+  \item \code{spark} (\code{SparkSession}).
+  \item \code{customer\_ids} (\code{list[str]}) --- clients filtrés via
+        \code{isin}, côté tracking.
+  \item \code{publisher\_ids} (\code{list[str]}) --- \emph{publishers} filtrés via
+        \code{isin}, côté \code{adlog}.
+  \item \code{start\_date}, \code{end\_date} (\code{date}) --- bornes de
+        \code{\_\_log\_date.between(...)} et de \code{emitted.between(...)},
+        incluses.
+\end{itemize}
+
+\paragraph{Tables lues.}
+\begin{itemize}[nosep,leftmargin=*]
+  \item \code{mirakl\_data\_platform.prod\_data\_platform\_silver.t2s\_merged\_user}
+        --- même table que \ref{subsec:fn-get-views}, même construction
+        (\code{customerId} en filtre, \code{masterId}/\code{sourceId} projetés).
+  \item \code{mirakl\_data\_platform.prod\_data\_platform\_silver.ads\_adlog\_fct}
+        (\code{adlog}) --- logs du serveur de recommandation. Colonnes utilisées :
+        \code{\_\_k8s\_namespace}, \code{publisherId}, \code{\_\_log\_date},
+        \code{pageType} (filtres), \code{productId}, \code{userCookie},
+        \code{customerId}, \code{logInstant} (clés/fenêtre de jointure),
+        \code{executionId}, \code{searchTerm}, \code{userOrganizeRank},
+        \code{relevantProducts}, \code{sponsoredProductPlacementExecutions},
+        \code{productsReturned} (sortie).
+  \item \code{mirakl\_data\_platform.prod\_data\_platform\_silver.t2s\_tracking\_product\_display\_page\_event\_fct}
+        --- même table que \ref{subsec:fn-get-views}, avec ici deux colonnes
+        supplémentaires en clé de jointure : \code{fwProductId},
+        \code{user.cookie}.
+\end{itemize}
+
+\paragraph{Traitement.}
+\begin{itemize}[nosep,leftmargin=*]
+  \item \code{df\_merged\_user} : même construction que
+        \ref{subsec:fn-get-views}.
+  \item \code{df\_t2s\_recommended\_products} : logs \code{adlog} filtrés
+        (namespace \code{target2sell-prod}, \code{publisherId},
+        \code{\_\_log\_date}, \code{pageType == "PRODUCT"}), joints en
+        \code{inner} à la table de tracking (elle-même filtrée sur
+        \code{customerId}, \code{emitted}, et deux colonnes non nulles) sur
+        produit / cookie / client et une fenêtre de \code{±3s} autour de
+        \code{logInstant} ; \code{userId} rattaché à l'id maître comme dans
+        \ref{subsec:fn-get-views} ; sélection des colonnes de sortie.
+\end{itemize}
+
+\paragraph{Table produite.}
+Une ligne par paire \code{(adlog, t2s)} appariée par la jointure \code{inner}.
+Le prédicat ne fixe pas \code{emitted == logInstant} mais une fenêtre de
+tolérance de 3 secondes : si plusieurs exécutions \code{adlog} tombent dans
+cette fenêtre pour le même produit / cookie / client, le même événement de vue
+apparaît en plusieurs lignes --- l'unicité par vue n'est pas garantie par le
+code.
+\begin{center}
+\small
+\begin{tabular}{@{}llp{6.4cm}@{}}
+\toprule
+\textbf{Colonne} & \textbf{Type} & \textbf{Provenance et sens} \\
+\midrule
+\code{internalId} & \code{bigint} & \code{t2s.masterProductInternalId} renommé \\
+\code{emitted} & \code{timestamp} & \code{t2s.emitted} ; horodatage de la vue \\
+\code{userId} & \code{bigint} & id utilisateur réconcilié (même logique que \ref{subsec:fn-get-views}) \\
+\code{customerId} & \code{string} & \code{t2s.customerId} renommé \\
+\code{executionId} & \code{string} & \code{adlog.executionId} \\
+\code{logInstant} & \code{timestamp} & \code{adlog.logInstant} ; horodatage de l'exécution \\
+\code{pageType} & \code{string} & \code{adlog.pageType} ; toujours \code{"PRODUCT"} après le filtre \\
+\code{searchTerm} & \code{string} & \code{adlog.searchTerm} \\
+\code{userOrganizeRank} & \code{string} & \code{adlog.userOrganizeRank} --- une chaîne malgré le nom, pas un entier \\
+\code{relevantProducts} & \code{array<struct>} & \code{adlog.relevantProducts} au niveau racine, struct \code{<fwProductId, relevanceScore, organizeScore, bidPrice>} --- différent du \code{relevantProducts} imbriqué dans \code{sponsoredProductPlacementExecutions} utilisé par \ref{subsec:fn-positive-negative-edge-construction} \\
+\code{sponsoredProductPlacementExecutions} & \code{array<struct>} & \code{adlog.sponsoredProductPlacementExecutions} ; structure imbriquée, voir \ref{subsec:fn-positive-negative-edge-construction} pour les champs exploités \\
+\code{productsReturned} & \code{array<struct>} & \code{adlog.productsReturned}, struct \code{<fwProductId, adId, adUnitId>} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+%======================================================================
+\section{Construction des arêtes positives et négatives d'entraînement}
+
+\subsection{\texttt{positive\_negative\_edge\_construction}}
+\label{subsec:fn-positive-negative-edge-construction}
+
+Construit, pour un split donné, les arêtes positives et négatives utilisées pour
+l'entraînement et l'évaluation du modèle de lien trigger $\to$ candidat, à partir
+des exécutions de recommandation (\ref{subsec:fn-recommended-products-for-t2s-user})
+et de la vérité de session (\ref{subsec:fn-split-sessions}). Une paire est
+positive si le produit candidat a effectivement été vu dans la session du
+trigger ; elle est négative si le candidat n'a pas été vu \emph{et} n'est pas
+déjà une arête du graphe d'entraînement (\code{df\_train\_edges}), pour éviter
+les faux négatifs. Au passage, la fonction calcule aussi le MRR de l'algorithme
+de production (deux variantes) sur les mêmes exécutions, à titre de métrique de
+référence.
+
+\paragraph{Signature.}\leavevmode\par
+\begin{lstlisting}[language=Python]
+def positive_negative_edge_construction(df_recommended: DataFrame, df_split: DataFrame, df_train_edges: DataFrame, node2idx: dict[int, int], split: str) -> tuple:
+\end{lstlisting}
+
+\paragraph{Arguments.}
+\begin{center}
+\small
+\begin{tabular}{@{}llp{7.6cm}@{}}
+\toprule
+\textbf{Argument} & \textbf{Type} & \textbf{Rôle} \\
+\midrule
+\code{df\_recommended} & \code{DataFrame} & Exécutions de recommandation
+  enrichies. Doit porter \code{userId}, \code{session\_id}, \code{internalId},
+  \code{executionId}, \code{sponsoredProductPlacementExecutions},
+  \code{split} --- \code{session\_id} et \code{split} ne figurent pas dans le
+  schéma documenté de \ref{subsec:fn-recommended-products-for-t2s-user} : ce
+  DataFrame est donc le résultat d'une jointure amont (avec la sortie de
+  \ref{subsec:fn-split-sessions}, vraisemblablement sur \code{userId} /
+  \code{internalId} / \code{emitted}) non visible dans ce fragment. \\
+\code{df\_split} & \code{DataFrame} & Sortie de \ref{subsec:fn-split-sessions}
+  (ou son équivalent mis en cache) : une ligne par vue, avec \code{userId},
+  \code{session\_id}, \code{internalId}, \code{split}. Sert de vérité de
+  session --- les produits réellement vus. \\
+\code{df\_train\_edges} & \code{DataFrame} & Arêtes de co-vue d'entraînement,
+  issues de \ref{subsec:fn-build} / \ref{subsec:fn-build-co-view-edges}.
+  Colonnes utilisées : \code{product\_A}, \code{product\_B}. Sert à exclure
+  les faux négatifs. \\
+\code{node2idx} & \code{dict[int, int]} & Mapping \code{internalId} $\to$
+  index contigu, produit par \code{build\_node\_mapping}
+  (\ref{subsec:fn-build-node-mapping}). \\
+\code{split} & \code{str} & Split à traiter (\code{"train"} / \code{"val"} /
+  \code{"test"}) ; filtre \code{df\_recommended} et \code{df\_split}. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Traitement.}
+\begin{itemize}[nosep,leftmargin=*]
+  \item \code{df\_recommended\_products\_t2s\_with\_sessions} : jointure
+        \code{inner} sur \code{(userId, session\_id)} entre les triggers de
+        \code{df\_recommended} et les vues de session de \code{df\_split} ---
+        associe chaque trigger à tous les produits vus dans sa session.
+  \item \code{df\_recommended\_exploded} : explose les placements
+        (\code{sponsoredProductPlacementExecutions}) puis leurs douze premiers
+        candidats (\code{relevantProducts}), avec le rang d'affichage 1-based
+        (\code{rank\_candidate}) --- mis en \code{cache()}, réutilisé cinq fois
+        en aval.
+  \item \code{positive\_candidates} : candidats dont
+        \code{internalId\_candidate} correspond à un produit vu en session ---
+        les \emph{hits}, dédupliqués en \code{(product\_A, product\_B)} par
+        exécution.
+  \item \code{matched\_rank} / MRR de production : meilleur rang par
+        exécution converti en \code{reciprocal\_rank} ;
+        \code{production\_mrr\_matched} moyenne sur les exécutions avec hit
+        (comparable à \code{MRR\_trigger}), \code{production\_mrr\_coverage}
+        moyenne sur toutes les exécutions.
+  \item \code{df\_all\_candidates} : tous les couples
+        \code{(executionId, product\_A, product\_B)}, positifs et négatifs
+        confondus, avec le rang minimal conservé.
+  \item \code{df\_existing\_pairs} : arêtes de \code{df\_train\_edges} dans
+        les deux sens --- pour tester l'appartenance au graphe sans ordre.
+  \item \code{df\_negative\_labeled} : marque chaque candidat comme
+        \code{is\_existing\_edge} ou non, par jointure \code{left} avec
+        \code{df\_existing\_pairs}.
+  \item \code{negative\_candidates} : candidats absents du graphe
+        d'entraînement, purgés des positifs déjà trouvés (\code{left\_anti})
+        --- mis en \code{cache()}.
+  \item \code{deepest\_pos\_rank} : rang du positif le plus profond par
+        exécution.
+  \item \code{negative\_candidates\_matched} : négatifs limités au rang du
+        positif le plus profond de leur exécution.
+  \item \code{exec\_only\_negatives} : exécutions sans aucun positif,
+        échantillonnées à \code{fraction=0.0} --- donc actuellement vide.
+  \item \code{negative\_candidates\_pure\_negative} /
+        \code{negative\_candidates\_sampled} : négatifs des exécutions sans
+        positif (vide) unis aux négatifs des exécutions avec positif.
+  \item Conversion \code{pandas} séparée des positifs et des négatifs (pas de
+        \emph{cross-join}).
+  \item \code{exec2code} / \code{code2exec} : code contigu par
+        \code{executionId}, sur toutes les exécutions du split, trié pour
+        être déterministe.
+  \item Remappage de \code{product\_A} / \code{product\_B} via
+        \code{node2idx} et de \code{executionId} via \code{exec2code}, puis
+        \code{dropna} des lignes non mappées.
+  \item \code{pos\_edge\_index} / \code{neg\_edge\_index} : tenseurs
+        \code{[3, N]} \code{(exec\_code, product\_A, product\_B)}, en
+        \code{torch.long}.
+\end{itemize}
+
+\paragraph{Points d'attention.}
+\begin{itemize}[nosep,leftmargin=*]
+  \item \code{df\_recommended} doit déjà contenir \code{session\_id} et
+        \code{split}, absents du schéma documenté de
+        \ref{subsec:fn-recommended-products-for-t2s-user} : une jointure amont
+        non visible ici enrichit ce DataFrame avant l'appel.
+  \item Avec \code{exec\_only\_negatives} échantillonné à
+        \code{fraction=0.0}, les exécutions sans aucun positif ne contribuent
+        \emph{aucun} négatif d'entraînement dans la configuration actuelle du
+        code, bien qu'elles reçoivent tout de même un \code{exec\_code}.
+  \item Le \code{dropna} final supprime silencieusement toute ligne dont
+        \code{product\_A}, \code{product\_B} ou \code{exec\_code} n'a pas pu
+        être mappé, sans journalisation du nombre de lignes perdues.
+\end{itemize}
+
+\paragraph{Sortie.}
+Retourne un \code{tuple} de six éléments (le type de retour annoté,
+\code{tuple}, n'est pas paramétré) :
+\begin{center}
+\small
+\begin{tabular}{@{}llp{7.4cm}@{}}
+\toprule
+\textbf{Élément} & \textbf{Type} & \textbf{Contenu} \\
+\midrule
+\code{pos\_edge\_index} & \code{torch.Tensor} & forme \code{[3, N]} ;
+  lignes \code{(exec\_code, product\_A, product\_B)} des candidats positifs. \\
+\code{neg\_edge\_index} & \code{torch.Tensor} & forme \code{[3, N]} ; même
+  structure, candidats négatifs échantillonnés. \\
+\code{production\_mrr\_matched} & \code{float} & MRR de production moyenné sur
+  les seules exécutions ayant un hit ; comparable à \code{MRR\_trigger} du
+  modèle. \\
+\code{production\_mrr\_coverage} & \code{float} & MRR de production moyenné
+  sur \emph{toutes} les exécutions (\code{0} pour celles sans hit). \\
+\code{exec2code} & \code{dict[str, int]} & \code{executionId} (\code{string})
+  $\to$ code contigu, sur toutes les exécutions du split. \\
+\code{code2exec} & \code{list} & code contigu $\to$ \code{executionId}
+  (inverse de \code{exec2code}). \\
+\bottomrule
+\end{tabular}
+\end{center}
+Le commentaire final du code précise que \code{df\_positives\_rank},
+\code{negative\_candidates} et \code{df\_all\_candidates} ne sont plus exposés
+depuis cette fonction : les tables prototype de production sont reconstruites
+indépendamment en aval.
+
+%======================================================================
+\section{Assemblage final du graphe PyG}
+
+\subsection{\texttt{build\_pyg\_data}}
+\label{subsec:fn-build-pyg-data}
+
+Regroupe le graphe de message-passing et les tenseurs de supervision des trois
+splits dans un unique objet \code{torch\_geometric.data.Data}.
+
+\paragraph{Signature.}\leavevmode\par
+\begin{lstlisting}[language=Python]
+def build_pyg_data(
+    num_nodes: int,
+    train_edge_index: torch.Tensor,
+    train_neg_edge_index: torch.Tensor,
+    train_pos_edge_index: torch.Tensor,
+    train_edge_attr: torch.Tensor,
+    val_pos_edge_index: torch.Tensor,
+    val_neg_edge_index: torch.Tensor,
+    test_pos_edge_index: torch.Tensor,
+    test_neg_edge_index: torch.Tensor,
+    x: torch.Tensor = None,
+) -> Data:
+\end{lstlisting}
+
+\paragraph{Arguments.}
+\begin{center}
+\small
+\begin{tabular}{@{}p{4.6cm}lp{6.8cm}@{}}
+\toprule
+\textbf{Argument} & \textbf{Type} & \textbf{Rôle} \\
+\midrule
+\code{num\_nodes} & \code{int} & Nombre total de nœuds, cf \code{count\_nodes}
+  (\ref{subsec:fn-count-nodes}). \\
+\code{train\_edge\_index} & \code{torch.Tensor} & Graphe de message-passing
+  (arêtes de co-vue de \code{train} uniquement), cf
+  \ref{subsec:fn-edges-to-tensors}. \\
+\code{train\_edge\_attr} & \code{torch.Tensor} & Poids associés à
+  \code{train\_edge\_index}, cf \ref{subsec:fn-edges-to-tensors}. \\
+\code{train\_pos\_edge\_index}, \code{train\_neg\_edge\_index} &
+  \code{torch.Tensor} & Arêtes de supervision positives / négatives du split
+  \code{train}, cf \code{pos\_edge\_index} / \code{neg\_edge\_index} de
+  \ref{subsec:fn-positive-negative-edge-construction}. \\
+\code{val\_pos\_edge\_index}, \code{val\_neg\_edge\_index} & \code{torch.Tensor}
+  & Idem pour le split \code{val}. \\
+\code{test\_pos\_edge\_index}, \code{test\_neg\_edge\_index} &
+  \code{torch.Tensor} & Idem pour le split \code{test}. \\
+\code{x} & \code{torch.Tensor}, défaut \code{None} & Matrice d'attributs de
+  nœuds, optionnelle. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Traitement.}
+\begin{itemize}[nosep,leftmargin=*]
+  \item \code{data} : \code{Data(edge\_index=train\_edge\_index,
+        edge\_attr=train\_edge\_attr, num\_nodes=num\_nodes)} --- graphe de
+        message-passing.
+  \item Si \code{x} n'est pas \code{None}, assigné à \code{data.x}.
+  \item Les six tenseurs de supervision (\code{train}/\code{val}/\code{test}
+        $\times$ \code{pos}/\code{neg}) sont attachés à \code{data} comme
+        attributs additionnels, sans transformation.
+\end{itemize}
+
+\paragraph{Sortie.}
+Retourne un objet \code{Data} unique, pas un tenseur ni un DataFrame :
+\begin{center}
+\small
+\begin{tabular}{@{}p{5.0cm}p{8.6cm}@{}}
+\toprule
+\textbf{Attribut} & \textbf{Contenu} \\
+\midrule
+\code{edge\_index} / \code{edge\_attr} / \code{num\_nodes} & Graphe de
+  message-passing (arêtes et poids de \code{train}, nombre de nœuds). \\
+\code{x} & Attributs de nœuds, présent seulement si fourni en entrée. \\
+\code{train\_pos\_edge\_index} / \code{train\_neg\_edge\_index} & Supervision
+  positive / négative du split \code{train}. \\
+\code{val\_pos\_edge\_index} / \code{val\_neg\_edge\_index} & Idem pour
+  \code{val}. \\
+\code{test\_pos\_edge\_index} / \code{test\_neg\_edge\_index} & Idem pour
+  \code{test}. \\
+\bottomrule
+\end{tabular}
+\end{center}
+Ce \code{Data} suit la convention transductive usuelle des GNN de prédiction de
+liens : le graphe de message-passing ne porte que les arêtes de \code{train}
+--- \code{val}/\code{test} n'apportent que des arêtes de supervision, jamais de
+structure supplémentaire au graphe.
+
+\end{document}

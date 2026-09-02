@@ -30,7 +30,7 @@ class BaseGNN(L.LightningModule, Generic[T], ABC):
 
 
     def configure_optimizers(self) -> torch.optim.Optimizer | dict:
-        optimizer = self.model_parameters.optimizer.get(self.model.parameters())
+        optimizer = self.model_parameters.optimizer.get(self.model.named_parameters())
         if self.model_parameters.scheduler is None:
             return optimizer
 

@@ -45,13 +45,8 @@ model_parameters:
         cached: true
 
   link_predictor_parameters:
-    link_predictor_type: hadamard_mlp
-    parameters:
-      dropout: 0.0
-      num_layers: 3
-      use_residual: true
-      use_layer_norm: false
-      normalize_embeddings: true
+    link_predictor_type: cosine_similarity
+    parameters: {}
 
   loss:
       loss_type: bce_with_logits_loss
@@ -87,7 +82,7 @@ model_parameters:
   optimizer:
     optimizer_type: adamw
     parameters:
-      lr: 0.0035
+      lr: 0.0005
       weight_decay: 0.002
 
   scheduler:
@@ -108,7 +103,7 @@ callbacks:
         monitor: val/mrr_trigger
         mode: "max"
         save_top_k: 1
-        dirpath: /dbfs/tmp/nbraun/checkpoints/coview-mdm-128
+        dirpath: /dbfs/tmp/nbraun/checkpoints/coview-mdm-cosine
 
 wandb_logger_parameters:
   entity: "neilbraunheinrich-national-university-of-singapore"
@@ -125,4 +120,3 @@ trainer_config:
   gradient_clip_val: 1.0
   check_val_every_n_epoch: 4
   limit_test_batches: 0
-  

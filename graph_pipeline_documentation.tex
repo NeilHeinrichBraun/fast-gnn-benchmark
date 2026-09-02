@@ -1,0 +1,175 @@
+% !TEX program = pdflatex
+% Documentation fonction par fonction de graph_pipeline_prototype.ipynb
+% Compilation : pdflatex graph_pipeline_documentation.tex (2 passes pour les références)
+
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[french]{babel}
+\usepackage{lmodern}
+\usepackage[margin=2.2cm]{geometry}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{longtable}
+\usepackage{xcolor}
+\usepackage[hidelinks]{hyperref}
+
+% Désactive les espacements automatiques du français devant ; : ! ?
+\shorthandoff*{;:!?}
+
+\newcommand{\code}[1]{\texttt{\small #1}}
+
+\title{Documentation de \code{graph\_pipeline\_prototype.ipynb}}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+%======================================================================
+\section{Hypothèses métier}
+\label{sec:hypotheses}
+
+{\small
+\begin{longtable}{@{}l p{2.45cm} p{5.9cm} p{4.5cm}@{}}
+\toprule
+\textbf{Id} & \textbf{Étape} & \textbf{Hypothèse métier} & \textbf{Si elle est fausse} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Id} & \textbf{Étape} & \textbf{Hypothèse métier} & \textbf{Si elle est fausse} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+
+H1 & \url{get_customer} & Le \code{shortName} désigne un client unique, qui possède un publisher dans le namespace \code{artemis-prod}. & La jointure \code{inner} rend le client invisible, ou \code{collect()} renvoie plusieurs \code{db\_name} et le graphe mélange deux catalogues. \\
+\addlinespace
+H2 & \url{get_products} & Le catalogue \emph{courant} vaut pour toute la fenêtre historique : un produit actif aujourd'hui l'était déjà lors des vues de janvier. & Les produits désactivés depuis sont retirés du graphe alors que leurs vues existaient : le graphe rétrécit à mesure que l'on relance tard. \\
+\addlinespace
+H3 & \url{get_products} & Seuls les produits maîtres (\code{parentId = -1}) portent le signal ; le tracking a déjà ramené les vues de déclinaisons au maître. & Le signal des déclinaisons est perdu, ou au contraire agrégé alors que les déclinaisons se comportent différemment. \\
+\addlinespace
+H4 & \url{get_products} & \code{isActive} $\land$ \code{isOkInStream} = « produit recommandable » ; les autres n'ont pas à être des nœuds. & Des produits recommandés en production sont absents du graphe, donc non scorables. \\
+\addlinespace
+H5 & \url{get_embeddings} & Un modèle d'embedding figé (\code{last\_model\_id}) donne au plus une ligne par produit. & Deux embeddings pour le même produit se retrouvent tous les deux dans le résultat, et le remplissage des features en aval choisit l'un des deux de façon non déterministe. \\
+\addlinespace
+H6 & \url{get_views} & Un événement \code{product\_display\_page\_event} = une vue produit. Pas de pondération par durée ou scroll, pas de déduplication des rafraîchissements. & Un rechargement de page compte comme une vue supplémentaire ; les vues de bots gonflent les sessions. \\
+\addlinespace
+H7 & \url{get_views} & \code{t2s\_merged\_user} est fonctionnel (un \code{sourceId} $\rightarrow$ un \code{masterId}) et l'identité réconciliée est la bonne granularité de session. & Plusieurs \code{masterId} pour un \code{sourceId} dupliquent les lignes de vues et \emph{doublent} les poids d'arêtes. Fusionner les appareils enchaîne des navigations parallèles dans une même session. \\
+\addlinespace
+H8 & \url{get_views} & Trafic non identifié (\code{user.internalId} null) et vue non résolue en produit maître ne portent pas de signal exploitable. & Une part importante du trafic --- typiquement les visiteurs non logués --- ne contribue à aucune arête. \\
+\addlinespace
+H9 & \url{get_views} & \code{emitted.between(start\_date, end\_date)} : les bornes sont des dates converties en timestamps à minuit, donc la journée du \code{end\_date} est de fait exclue. & La fenêtre réelle a un jour de moins que prévu ; un décalage d'un jour entre le graphe et un autre calcul qui utiliserait la même variable. \\
+\addlinespace
+H10 & \url{sessionize_views} & Une session = 30 minutes d'inactivité (\code{session\_timeout}), par utilisateur réconcilié, tous appareils confondus. Le tri \code{(emitted, internalId)} rend la coupure déterministe en cas d'\emph{ex æquo}. & Un temps de réflexion long scinde une intention d'achat en deux sessions ; deux intentions rapprochées fusionnent. \\
+\addlinespace
+H11 & \url{split_sessions} & Le découpage train/val/test se fait à la granularité de la session (\code{session\_start}), pas de l'événement individuel. & Une session commencée avant \code{cutoff\_train} et poursuivie après reste entièrement en train : de l'information postérieure à la coupure entre dans l'entraînement. \\
+\addlinespace
+H12 & \url{build_co_view_edges} & Deux produits vus dans la même session sont liés, indépendamment de l'ordre, de l'écart de temps et de la distance dans la session. & Une session de navigation exploratoire produit un graphe complet de produits sans rapport ; le signal séquentiel (A puis B) est perdu. \\
+\addlinespace
+H13 & \url{build_co_view_edges} & Une session compte une fois par paire (\code{distinct} avant la self-jointure) : le poids d'une arête = nombre de sessions distinctes contenant la paire. & Un utilisateur qui compare intensément deux produits ne pèse pas plus qu'une co-vue fortuite au sein d'une session. \\
+\addlinespace
+H14 & \url{build_co_view_edges} & \code{USE\_SESSION\_WEIGHT\_NORM = False} : toutes les sessions pèsent pareil. Une session de $n$ produits produit $n(n-1)/2$ paires de poids 1. & Une session de 50 produits (bot, crawler, comparateur) apporte 1225 arêtes contre 1 pour une session de 2 produits : le graphe est dominé par les sessions longues. \\
+\addlinespace
+H15 & \url{build_co_view_edges} & Aucun seuil minimal de poids : une co-occurrence unique est une arête à part entière. & Le graphe est majoritairement constitué d'arêtes de poids 1, c'est-à-dire de coïncidences --- et ce sont exactement celles qui varient le plus d'un run à l'autre. \\
+\addlinespace
+H16 & \url{build_co_view_edges} & \code{L.internalId < R.internalId} élimine les boucles et canonise chaque paire dans un seul sens. & Aucune asymétrie de type « B est un accessoire de A » n'est représentable ici ; la duplication dans les deux sens n'a lieu qu'en aval. \\
+\addlinespace
+H17 & \url{remove_train_edges} & Une paire évaluée doit être inédite vis-à-vis du graphe d'entraînement. & Sans cela on mesurerait la mémorisation plutôt que la généralisation. Val et test ne sont pas dédoublonnés entre eux : une même paire peut être dans les deux. \\
+\addlinespace
+H18 & \url{build} & \code{df\_train\_edges is None} sert de marqueur implicite « ceci est le split train » ; c'est le seul signal qui déclenche ou non le retrait des paires déjà en train. & Un appel val/test sans passer \code{df\_train\_edges} ne filtre silencieusement rien : aucune vérification n'assure que le split réellement traité correspond à l'usage prévu du paramètre. \\
+\addlinespace
+H19 & \url{build_node_mapping} & Le jeu de nœuds est l'union des arêtes de train, val et test passées en argument. & Des nœuds existent dans le graphe sans aucune arête d'entraînement (isolés), uniquement parce qu'ils ont été co-vus pendant val ou test. Ils augmentent le nombre de nœuds et donc la taille des couches d'embedding. \\
+\addlinespace
+H20 & \url{build_node_mapping} & Les index de nœuds sont attribués dans l'ordre croissant des \code{internalId}. & Reproductible à jeu de nœuds identique ; mais l'ajout d'un seul produit décale tous les index suivants et rend un fichier de données incompatible avec un \code{node2idx.json} d'un autre run. \\
+\addlinespace
+H21 & \url{remap_edges} & \code{node2idx} couvre déjà tous les \code{internalId} de \code{df}, car construit en amont sur ce même DataFrame (entre autres). & \code{.map()} renvoie \code{NaN} pour un \code{internalId} absent, silencieusement --- la ligne n'est pas retirée mais devient corrompue, et l'erreur ne surviendrait qu'en aval, à la conversion en tensor. \\
+\addlinespace
+H22 & \url{edges_to_tensors} & Le graphe de co-vue est traité comme non dirigé : \code{symmetric=True} ajoute systématiquement l'arête inverse, complétant la canonisation \code{A < B} faite dans \code{build\_co\_view\_edges}. & Un appel avec \code{symmetric=False} produirait un graphe dirigé avec deux fois moins d'arêtes, sans aucun avertissement puisque le paramètre n'est validé contre rien. \\
+\addlinespace
+H23 & \url{recommended_products_for_t2s_user} & Un log ad et une vue produit du même cookie, du même produit et du même client, séparés de moins de 3 secondes, sont le même événement. & Fenêtre trop large : plusieurs vues apparient un même log et dupliquent les lignes. Trop étroite : un log est perdu par latence réseau ou décalage d'horloge. \\
+\addlinespace
+H24 & \url{recommended_products_for_t2s_user} & Seules les pages \code{PRODUCT} portent une recommandation exploitable. & Les recommandations de la page d'accueil, de la recherche et des pages catégorie sont hors périmètre. \\
+\addlinespace
+H25 & \url{positive_negative_edge_construction} & L'ordre du tableau \code{relevantProducts} est l'ordre d'affichage réel, et seuls les 12 premiers comptent (\code{F.slice(...,1,12)}). & Le code prévoit explicitement une variante par score (\code{relevanceScore}) ailleurs dans le notebook ; trier autrement changerait quels candidats entrent dans les 12 retenus. \\
+\addlinespace
+H26 & \url{positive_negative_edge_construction} & \textbf{Positif} = candidat recommandé \emph{et} vu dans la même session --- sans contrainte temporelle : un produit vu avant la recommandation compte comme positif. & Fuite temporelle dans la définition du label : une partie des « clics prédits » sont des produits déjà visités, que le modèle peut retrouver par le graphe plutôt que par une vraie prédiction. \\
+\addlinespace
+H27 & \url{positive_negative_edge_construction} & \textbf{Négatif} = candidat recommandé, non positif, \emph{et} absent des arêtes d'entraînement testées dans les deux sens. & Évite d'apprendre contre des faux négatifs, mais retire les négatifs les plus difficiles --- ceux qui ressemblent le plus à des positifs. \\
+\addlinespace
+H28 & \url{positive_negative_edge_construction} & Asymétrie assumée : les négatifs sont filtrés sur les arêtes du graphe d'entraînement, les positifs ne le sont pas. & Un modèle qui apprend seulement « cette paire est-elle déjà une arête du graphe ? » obtient un bon score sans généraliser. \\
+\addlinespace
+H29 & \url{positive_negative_edge_construction} & Négatifs tronqués au rang du positif le plus profond de l'exécution ; les exécutions sans aucun positif sont écartées des arêtes d'entraînement (\code{sample(fraction=0.0, seed=42)}). & Le modèle ne voit jamais de liste purement négative, alors que la production en produit. La fraction à 0 est un levier laissé tel quel, pas une propriété du problème. \\
+\addlinespace
+H30 & \url{positive_negative_edge_construction} & \code{exec2code} couvre toutes les exécutions du split, indépendamment du label, et est rendu stable par tri (\code{all\_exec\_ids.sort()}). & Stable à jeu d'exécutions identique seulement : la moindre exécution en plus ou en moins renumérote tout et invalide les tenseurs déjà écrits avec l'ancien \code{exec2code}. \\
+\addlinespace
+H31 & \url{prod_products_by_trigger} & Aujourd'hui, chaque trigger n'a qu'un seul placement sponsorisé ; le \code{rank} final coïncide donc exactement avec la position dans le tableau (1-based). & Si un trigger avait plusieurs placements, la fusion par \code{F.min(pos\_rank)} et le tie-break par \code{internal\_id} entreraient en jeu silencieusement, sans qu'aucun test ne le signale aujourd'hui. \\
+\addlinespace
+H32 & \url{add_pos_neg} & Pour la comparaison à la production, positif et négatif sont définis par simple appartenance aux produits de la session, sans aucun filtrage sur les arêtes du graphe d'entraînement. & Choix assumé : on veut le vrai retour production, pas des négatifs d'entraînement. Conséquence : la baseline production et le modèle ne sont pas évalués sur exactement la même définition de négatif que celle utilisée à l'entraînement (H26). \\
+
+\end{longtable}
+}
+\refstepcounter{table}\label{tab:hypotheses}
+\begin{center}\footnotesize\itshape Tableau \thetable{} --- Hypothèses métier.\end{center}
+
+%======================================================================
+\clearpage
+\section{Ce qui peut être exclu du graphe}
+\label{sec:exclusions}
+
+{\small
+\begin{longtable}{@{}l p{3.2cm} p{4.4cm} p{5.2cm}@{}}
+\toprule
+\textbf{Id} & \textbf{Étape} & \textbf{Mécanisme} & \textbf{Ce qui disparaît} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Id} & \textbf{Étape} & \textbf{Mécanisme} & \textbf{Ce qui disparaît} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+
+E1 & \url{get_customer} & jointure \code{inner} clients / publishers. & Un client sans \emph{publisher} \code{artemis-prod} : le notebook s'exécute alors sur des listes vides sans erreur. \\
+\addlinespace
+E2 & \url{get_products} & \code{isActive}, \code{isOkInStream} & Produits désactivés ou hors flux au moment du run (pas au moment de la vue). \\
+\addlinespace
+E3 & \url{get_products} & \code{parentId = -1} & Toutes les déclinaisons. \\
+\addlinespace
+E4 & \url{get_embeddings} & \code{last\_model\_id} figé & Les embeddings calculés par une autre version du modèle. \\
+\addlinespace
+E5 & \url{get_views} & \code{user.internalId} non nul & Trafic non identifié. \\
+\addlinespace
+E6 & \url{get_views} & \code{masterProductInternalId} non nul & Vues non résolues en produit maître. \\
+\addlinespace
+E7 & \url{get_views} & \code{emitted.between(...)} & Journée du \code{end\_date} (bornes prises à minuit, voir H9). \\
+\addlinespace
+E8 & \url{build_co_view_edges} & self-jointure \code{L.internalId < R.internalId} & Sessions à un seul produit distinct : elles ne produisent aucune arête, quel que soit leur volume. \\
+\addlinespace
+E9 & \url{remove_train_edges} & \code{left\_anti} & Paires val/test déjà vues en train. \\
+\addlinespace
+E10 & \url{build_node_mapping} & \code{node2idx} n'est construit qu'à partir des colonnes \code{product\_A}/\code{product\_B} des arêtes fournies. & Les produits catalogués et embeddés qui n'ont jamais été co-vus avec un autre produit ne deviennent jamais des nœuds du graphe, même s'ils ont un embedding valide. \\
+\addlinespace
+E11 & \url{recommended_products_for_t2s_user} & \code{pageType = "PRODUCT"}, fenêtre $\pm$3\,s, \code{publisherId isin(...)} & Recommandations hors page produit ; logs non appariés à une vue ; logs d'un publisher non résolu. \\
+\addlinespace
+E12 & \url{positive_negative_edge_construction} & \code{F.explode(...)} sur le tableau des placements sponsorisés & Exécutions sans placement sponsorisé (tableau vide ou nul) : \code{explode} les retire silencieusement, contrairement à \code{explode\_outer}. \\
+\addlinespace
+E13 & \url{positive_negative_edge_construction} & \code{F.slice(relevantProducts, 1, 12)} & Candidats au-delà du rang 12 --- y compris d'éventuels positifs qui s'y trouveraient. \\
+\addlinespace
+E14 & \url{positive_negative_edge_construction} & \code{\textasciitilde{}is\_existing\_edge} & Paires candidates déjà arêtes du graphe d'entraînement, côté négatifs uniquement (H28). \\
+\addlinespace
+E15 & \url{positive_negative_edge_construction} & \code{rank\_candidate <= deepest\_pos\_rank} & Négatifs plus profonds que le positif le plus profond de l'exécution. \\
+\addlinespace
+E16 & \url{positive_negative_edge_construction} & \code{sample(fraction=0.0, seed=42)} & Tous les négatifs des exécutions sans aucun positif. \\
+\addlinespace
+E17 & \url{positive_negative_edge_construction} & \code{.map(node2idx)} + \code{dropna} & Paires positives ou négatives dont un des deux produits n'est pas un nœud du graphe (voir H21). \\
+\addlinespace
+E18 & \url{prod_products_by_trigger} & \code{filter(rank <= top\_k)}, redondant avec le \code{slice(...,1,12)} déjà appliqué en amont tant qu'il n'y a qu'un seul placement par trigger. & Rien aujourd'hui --- garde-fou sans effet en placement unique ; deviendrait actif si un trigger cumulait plusieurs placements. \\
+
+\end{longtable}
+}
+\refstepcounter{table}\label{tab:exclusions}
+\begin{center}\footnotesize\itshape Tableau \thetable{} --- Ce qui peut être exclu du graphe.\end{center}
+
+\end{document}

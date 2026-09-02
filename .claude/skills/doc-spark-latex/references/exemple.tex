@@ -1,0 +1,76 @@
+% ---------------------------------------------------------------------------
+% Exemple de remplissage complet, sur get_customer (graph_pipeline.ipynb).
+% Sert de référence de ton, de niveau de détail et d'échappement.
+% Noter en particulier :
+%   - intro à une phrase, sans mise en contexte ;
+%   - traitement en tirets PAR BLOC LOGIQUE (customers / publishers / jointure
+%     finale), pas par appel Spark : trois tirets pour toute la fonction, chacun
+%     une phrase qui dit ce que le bloc représente + son info clé ;
+%   - les `_` échappés partout hors lstlisting ;
+%   - les noms Unity Catalog dans un itemize, pas dans un tabular ;
+%   - la remarque honnête sur la cardinalité, marquée comme non garantie
+%     par le code plutôt que passée sous silence.
+% ---------------------------------------------------------------------------
+
+\subsection{\texttt{get\_customer}}
+\label{subsec:fn-get-customer}
+
+Résout, pour un client donné, son \code{publicId} T2S et son \code{publisherId}
+Artemis.
+
+\paragraph{Signature.}\leavevmode\par
+\begin{lstlisting}[language=Python]
+def get_customer(spark: SparkSession, customer_shortname: str) -> DataFrame:
+\end{lstlisting}
+
+\paragraph{Arguments.}
+\begin{itemize}[nosep,leftmargin=*]
+  \item \code{spark} (\code{SparkSession}) --- session utilisée pour ouvrir les
+        tables du catalogue.
+  \item \code{customer\_shortname} (\code{str}) --- nom court du client, par exemple
+        \code{maisonsdumonde}. Sert de filtre unique sur le référentiel.
+\end{itemize}
+
+\paragraph{Tables lues.}
+\begin{itemize}[nosep,leftmargin=*]
+  \item \code{mirakl\_ai.ds\_etl\_prod.t2s\_gold\_customer} --- référentiel des
+        clients T2S. Colonnes utilisées : \code{shortName} (filtre),
+        \code{publicId}, \code{databaseName}.
+  \item \code{mirakl\_data\_platform.prod\_data\_platform\_silver.artemis\_insights\_customer}
+        --- clients côté Artemis. Colonnes utilisées : \code{id},
+        \code{public\_id}, \code{\_\_k8s\_namespace} (filtre d'environnement).
+  \item \code{mirakl\_data\_platform.prod\_data\_platform\_silver.artemis\_publisher}
+        --- \emph{publishers} Artemis. Colonnes utilisées : \code{id},
+        \code{insights\_customer\_id} (clé de jointure).
+\end{itemize}
+
+\paragraph{Traitement.}
+\begin{itemize}[nosep,leftmargin=*]
+  \item \code{customers} : client T2S filtré sur \code{shortName}, projeté sur
+        \code{publicId} et \code{databaseName} (renommé \code{db\_name}).
+  \item \code{publishers} : clients Artemis rattachés aux \emph{publishers} par
+        jointure \code{left} sur \code{insights\_customer\_id}, restreints au
+        namespace \code{artemis-prod}, projetés sur \code{publisherId} et
+        \code{public\_id}.
+  \item Jointure finale \code{inner} \code{customers}/\code{publishers} sur
+        \code{publicId} = \code{public\_id} ; sélection des quatre colonnes de
+        sortie.
+\end{itemize}
+
+\paragraph{Table produite.}
+Une ligne par couple client\,/\,\emph{publisher} ; unicité non garantie par le code.
+Types déduits du nommage, non relus dans le catalogue.
+
+\begin{center}
+\small
+\begin{tabular}{@{}llp{6.8cm}@{}}
+\toprule
+\textbf{Colonne} & \textbf{Type} & \textbf{Provenance et sens} \\
+\midrule
+\code{customer\_shortname} & \code{string} & \code{t2s\_gold\_customer.shortName} ; recopie de l'argument \\
+\code{customerId}          & \code{string} & \code{t2s\_gold\_customer.publicId} ; identifiant public T2S \\
+\code{db\_name}            & \code{string} & \code{t2s\_gold\_customer.databaseName} ; base à interroger en aval \\
+\code{publisherId}         & \code{long}   & \code{artemis\_publisher.id} ; nul si le client n'a pas de \emph{publisher} \\
+\bottomrule
+\end{tabular}
+\end{center}

@@ -5,7 +5,7 @@ from typing import Annotated, Any, Literal
 import lightning as L
 import torch
 import torchmetrics
-from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
+from lightning.pytorch.callbacks import EarlyStopping, LearningRateMonitor, ModelCheckpoint
 from lightning.pytorch.loggers import WandbLogger
 from pydantic import BaseModel, Field, field_validator
 
@@ -25,6 +25,7 @@ from fast_gnn_benchmark.metrics.base_metrics import (
     OptimizedPrecision,
     OptimizedRecall,
 )
+from fast_gnn_benchmark.models.optimizers import MuonWithAuxAdamW, split_muon_parameters
 from fast_gnn_benchmark.schemas.data_models import DataParameters
 
 # -------------------- Loss --------------------
@@ -156,13 +157,17 @@ class OptimizerType(Enum):
     ADAM = "adam"
     SGD = "sgd"
     ADAMW = "adamw"
+    MUON = "muon"
 
 
 class OptimizerParameters(BaseModel):
     optimizer_type: OptimizerType
     parameters: dict[str, Any]
 
-    def get(self, nn_parameters: Iterable[torch.nn.Parameter]) -> torch.optim.Optimizer:
+    def get(self, named_parameters: Iterable[tuple[str, torch.nn.Parameter]]) -> torch.optim.Optimizer:
+        named_parameters_list = list(named_parameters)
+        nn_parameters = [parameter for _, parameter in named_parameters_list]
+
         match self.optimizer_type:
             case OptimizerType.ADAM:
                 return torch.optim.Adam(nn_parameters, **self.parameters)
@@ -170,8 +175,29 @@ class OptimizerParameters(BaseModel):
                 return torch.optim.SGD(nn_parameters, **self.parameters)
             case OptimizerType.ADAMW:
                 return torch.optim.AdamW(nn_parameters, **self.parameters)
+            case OptimizerType.MUON:
+                return self._get_muon(named_parameters_list)
             case _:
                 raise ValueError(f"Invalid optimizer type: {self.optimizer_type}")
+
+    def _get_muon(self, named_parameters: list[tuple[str, torch.nn.Parameter]]) -> torch.optim.Optimizer:
+        for key in ["lr", "adamw_lr"]:
+            if key not in self.parameters:
+                raise ValueError(f"Muon optimizer must have a {key} parameter")
+
+        muon_params, aux_params = split_muon_parameters(named_parameters)
+
+        muon_ids = {id(parameter) for parameter in muon_params}
+        for name, parameter in named_parameters:
+            print(f"[{'muon' if id(parameter) in muon_ids else 'aux '}] {name} {tuple(parameter.shape)}")
+        print(f"[split] muon: {len(muon_params)} tenseurs / aux: {len(aux_params)} tenseurs")
+
+        muon_kwargs = {k: v for k, v in self.parameters.items() if not k.startswith("adamw_")}
+        adamw_kwargs = {
+            k.removeprefix("adamw_"): v for k, v in self.parameters.items() if k.startswith("adamw_")
+        }
+
+        return MuonWithAuxAdamW(muon_params, aux_params, muon_kwargs, adamw_kwargs)
 
 
 class SchedulerType(Enum):
@@ -400,6 +426,7 @@ class NodeClassificationModelParameters(BaseModelParameters):
 class LinkPredictorType(Enum):
     COSINE_SIMILARITY = "cosine_similarity"
     HADAMARD_MLP = "hadamard_mlp"
+    MLP_COSINE = "mlp_cosine"
 
 
 class LinkPredictorParameters(BaseModel):
@@ -425,6 +452,7 @@ class LinkPredictionModelParameters(BaseModelParameters):
 class CallbackType(Enum):
     EARLY_STOPPING = "early_stopping"
     MODEL_CHECKPOINT = "model_checkpoint"
+    LEARNING_RATE_MONITOR = "learning_rate_monitor"
 
 
 class CallbackParameters(BaseModel):
@@ -443,6 +471,8 @@ class CallbackParameters(BaseModel):
                     if key not in self.parameters:
                         raise ValueError(f"Model checkpoint callback must have a {key} parameter")
                 return ModelCheckpoint(**self.parameters)
+            case CallbackType.LEARNING_RATE_MONITOR:
+                return LearningRateMonitor(**self.parameters)
             case _:
                 raise ValueError(f"Invalid callback type: {self.callback_type}")
 

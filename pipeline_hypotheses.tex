@@ -1,0 +1,828 @@
+% !TEX program = pdflatex
+% Hypothèses de logique métier du pipeline graph_pipeline_prototype.ipynb
+% Compilation : pdflatex pipeline_hypotheses.tex (2 passes pour les références)
+
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[french]{babel}
+\usepackage{lmodern}
+\usepackage[margin=2.2cm]{geometry}
+\usepackage{amsmath,amssymb,amsfonts,mathtools}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{longtable}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+\usepackage{caption}
+\usepackage{tikz}
+\usetikzlibrary{positioning,arrows.meta,fit,calc,backgrounds}
+
+% Désactive les espacements automatiques du français devant ; : ! ?
+\shorthandoff*{;:!?}
+
+\definecolor{codebg}{RGB}{247,247,250}
+\definecolor{codekw}{RGB}{20,80,160}
+\definecolor{codecm}{RGB}{110,120,130}
+\definecolor{codestr}{RGB}{150,60,60}
+\definecolor{hypcol}{RGB}{150,40,40}
+\definecolor{srccol}{RGB}{90,90,95}
+
+\lstdefinestyle{conf}{
+  backgroundcolor=\color{codebg},
+  basicstyle=\ttfamily\scriptsize,
+  keywordstyle=\color{codekw},
+  commentstyle=\color{codecm}\itshape,
+  stringstyle=\color{codestr},
+  breaklines=true,
+  columns=fullflexible,
+  frame=single,
+  framesep=4pt,
+  rulecolor=\color{codecm!40},
+  numbers=none,
+  showstringspaces=false,
+  tabsize=2,
+}
+\lstset{style=conf}
+
+\newcommand{\code}[1]{\texttt{\small #1}}
+\newcommand{\hyp}[1]{\textcolor{hypcol}{\textbf{\small [#1]}}}
+\newcommand{\cell}[1]{\textbf{Cellule #1}}
+\newcommand{\htg}[1]{{\sffamily\tiny\bfseries\color{hypcol}#1}}
+
+\tikzset{
+  tbl/.style={draw=srccol!60, fill=srccol!8, rounded corners=1pt,
+              font=\ttfamily\tiny, align=center, inner sep=3pt, text width=2.9cm},
+  fn/.style={draw=codekw!75, fill=codekw!8, rounded corners=3pt, thick,
+             font=\ttfamily\scriptsize, align=center, inner sep=4pt, text width=3.1cm},
+  op/.style={draw=srccol!70, fill=white, rounded corners=1pt,
+             font=\sffamily\tiny, align=center, inner sep=3pt, text width=3.1cm},
+  art/.style={draw=codekw!40, fill=codekw!4, rounded corners=1pt,
+              font=\ttfamily\tiny, align=center, inner sep=3pt, text width=3.1cm},
+  htag/.style={font=\sffamily\tiny\bfseries, text=hypcol},
+  ar/.style={-{Stealth[length=5pt,width=4pt]}, draw=srccol!85, thick},
+  arw/.style={-{Stealth[length=5pt,width=4pt]}, draw=srccol!60, dashed},
+  lbl/.style={font=\sffamily\tiny, text=srccol, fill=white, inner sep=1.5pt},
+}
+
+\title{\vspace{-1.6cm}\textbf{Pipeline de construction du graphe de co-vues}\\[0.25cm]
+\large Enchaînement des fonctions, hypothèses de logique métier\\
+et sources de variabilité entre deux exécutions}
+
+\author{Neil Braun\\[0.15cm]
+\small Mirakl --- Data Science / Target2Sell}
+
+\date{\small Août 2026 --- source : \code{graph\_pipeline\_prototype.ipynb}}
+
+\begin{document}
+
+\maketitle
+
+\noindent
+Ce document part du seul notebook \code{graph\_pipeline\_prototype.ipynb}. Il isole
+d'abord les deux chaînes de fonctions qu'il contient --- celle qui construit le
+\textbf{graphe} et celle qui construit les \textbf{arêtes d'entraînement} --- puis
+retrace le notebook cellule par cellule en renvoyant, à chaque étape, aux hypothèses
+de logique métier numérotées \hyp{H1}\dots\hyp{H34} (sections~\ref{sec:hyp-a}
+et~\ref{sec:hyp-b}). La section~\ref{sec:exclusions} recense tout ce qui peut être
+silencieusement exclu (\hyp{E1}\dots\hyp{E19}) et la section~\ref{sec:variabilite}
+explique pourquoi deux exécutions du notebook, même sur la même fenêtre de dates,
+ne donnent pas le même graphe (\hyp{V1}\dots\hyp{V14}).
+
+\medskip
+\noindent
+Toute affirmation est tirée du code du notebook. Les rares points qui dépendent de
+l'environnement (version de Spark, rétention des tables) sont signalés comme
+\emph{à vérifier} et non présentés comme relevés.
+
+\tableofcontents
+
+%======================================================================
+\section{Les deux chaînes de fonctions}
+
+Le notebook contient deux pipelines distincts qui ne se rejoignent qu'à la toute
+fin, dans l'objet \code{Data} de PyTorch Geometric :
+
+\begin{description}[leftmargin=1.1cm,style=nextline,font=\normalfont\itshape]
+  \item[Chaîne A --- le graphe.] Tracking de navigation $\rightarrow$ sessions
+        $\rightarrow$ paires de produits co-vus $\rightarrow$ \code{edge\_index}
+        d'entraînement + matrice de features \code{x}. C'est le graphe sur lequel
+        circule le \emph{message passing}.
+  \item[Chaîne B --- les arêtes d'entraînement.] Logs publicitaires
+        (\code{ads\_adlog\_fct}) rapprochés du tracking $\rightarrow$ exécutions de
+        recommandation $\rightarrow$ paires (trigger, candidat) étiquetées
+        positif/négatif. C'est ce que la tête de prédiction apprend à classer, et ce
+        sur quoi le MRR est calculé.
+\end{description}
+
+\noindent
+Ces deux chaînes n'ont pas la même sémantique d'arête : la chaîne~A produit
+« ces deux produits ont été vus dans la même session », la chaîne~B produit
+« ce produit a été recommandé à la suite de ce trigger, et vu / non vu »
+\hyp{H34}.
+
+\subsection{Chaîne A --- construction du graphe}
+
+\begin{center}
+\begin{tikzpicture}[font=\small]
+
+% --- sources
+\node[tbl] (s1) at (-6.4,1.5) {t2s\_gold\_customer\\artemis\_insights\_customer\\artemis\_publisher};
+\node[tbl] (s2) at (-2.9,1.5) {t2s\_mongo\_product\\\_0\_current};
+\node[tbl] (s3) at (0.6,1.5) {tracking\_product\_display\\\_page\_event\_fct\\t2s\_merged\_user};
+\node[tbl] (s4) at (4.1,1.5) {product\_embeddings};
+
+% --- fonctions d'extraction
+\node[fn] (f1) at (-6.4,0.0) {get\_customer\\[1pt]\htg{H1}};
+\node[fn] (f2) at (-2.9,0.0) {get\_products\\[1pt]\htg{H2 H3 H4}};
+\node[fn] (f3) at (0.6,0.0) {get\_views\\[1pt]\htg{H6 H7 H8 H9}};
+\node[fn] (f4) at (4.1,0.0) {get\_embeddings\\[1pt]\htg{H5}};
+
+\draw[ar] (s1) -- (f1);
+\draw[ar] (s2) -- (f2);
+\draw[ar] (s3) -- (f3);
+\draw[ar] (s4) -- (f4);
+
+% id resolution
+\draw[arw] (f1.south) -- ++(0,-0.45) -| node[lbl,pos=0.25]{db\_names, customerId} (f2.south);
+\draw[arw] (f1.south) -- ++(0,-0.45) -| (f3.south);
+
+% --- jointure catalogue
+\node[op] (j1) at (-1.15,-1.55) {jointure \code{inner} sur \code{internalId}\\(vues $\cap$ catalogue) \htg{H11}};
+\draw[ar] (f2.south) |- ++(0,-1.1) -- (j1.north west);
+\draw[ar] (f3.south) |- ++(0,-1.1) -- (j1.north east);
+
+\node[fn] (f5) at (-1.15,-2.85) {sessionize\_views\\[1pt]\htg{H10}};
+\node[fn] (f6) at (-1.15,-4.15) {split\_sessions\\[1pt]\htg{H17}};
+\node[art] (dsplit) at (-1.15,-5.25) {\textbf{df\_split} (\code{cache})\\userId, session\_id, internalId,\\emitted, session\_start, split};
+
+\draw[ar] (j1) -- (f5);
+\draw[ar] (f5) -- (f6);
+\draw[ar] (f6) -- (dsplit);
+
+% --- build co-view edges x3
+\node[fn] (b1) at (-5.0,-6.85) {build\_co\_view\_edges\\\scriptsize(split = train)};
+\node[fn] (b2) at (-1.15,-6.85) {build\_co\_view\_edges\\\scriptsize(split = val)};
+\node[fn] (b3) at (2.7,-6.85) {build\_co\_view\_edges\\\scriptsize(split = test)};
+\node[htag] at (-1.15,-7.75) {H12 H13 H14 H15 H16};
+
+\draw[ar] (dsplit.south) -- ++(0,-0.35) -| (b1.north);
+\draw[ar] (dsplit.south) -- ++(0,-0.35) -| (b2.north);
+\draw[ar] (dsplit.south) -- ++(0,-0.35) -| (b3.north);
+
+\node[fn] (r1) at (0.8,-8.6) {remove\_train\_edges\\\scriptsize(\code{left\_anti} sur les paires train)\\[1pt]\htg{H18}};
+\draw[ar] (b2.south) -- ++(0,-0.5) -| (r1.north west);
+\draw[ar] (b3.south) -- ++(0,-0.5) -| (r1.north east);
+\draw[arw] (b1.south) -- ++(0,-0.9) -| node[lbl,pos=0.2]{paires à retirer} (r1.west);
+
+\node[art] (nodes) at (-1.15,-9.9) {\textbf{df\_graph\_nodes} = union des\\extrémités train $\cup$ val $\cup$ test \htg{H19}};
+\draw[ar] (b1.south) -- ++(0,-1.9) -| (nodes.west);
+\draw[ar] (r1.south) -- ++(0,-0.55) -| (nodes.east);
+
+\node[fn] (m1) at (-1.15,-11.2) {build\_node\_mapping\\\scriptsize$\rightarrow$ \code{node2idx} (tri des internalId)\\[1pt]\htg{H20}};
+\draw[ar] (nodes) -- (m1);
+
+\node[fn] (rm) at (-4.3,-12.7) {remap\_edges};
+\node[fn] (emb) at (2.0,-12.7) {\code{node\_features} $\rightarrow$ \code{x}\\\scriptsize(0 si pas d'embedding) \htg{H5}};
+\draw[ar] (m1.south) -- ++(0,-0.35) -| (rm.north);
+\draw[ar] (m1.south) -- ++(0,-0.35) -| (emb.north);
+\draw[ar] (f4.east) -- (6.1,0) -- node[lbl,pos=0.55,rotate=90]{embeddings $\cap$ nœuds du graphe} (6.1,-12.7) -- (emb.east);
+
+\node[fn] (et) at (-4.3,-13.9) {edges\_to\_tensors\\\scriptsize(\code{symmetric=True}) \htg{H16}};
+\draw[ar] (rm) -- (et);
+
+\node[fn] (pyg) at (-1.15,-15.3) {build\_pyg\_data $\rightarrow$ \code{Data}};
+\draw[ar] (et.south) -- ++(0,-0.45) -| (pyg.north);
+\draw[ar] (emb.south) -- ++(0,-0.45) -| (pyg.north);
+
+\node[art] (ds) at (-1.15,-16.4) {\textbf{CoViewDataset} $\rightarrow$ \code{data.pt} + \code{node2idx.json}};
+\draw[ar] (pyg) -- (ds);
+
+\end{tikzpicture}
+\end{center}
+
+\begin{center}
+\parbox{0.92\textwidth}{\footnotesize\itshape
+Figure 1 --- Chaîne A. Les cadres bleus sont des fonctions du notebook, les cadres
+gris des tables Unity Catalog, les cadres clairs des artefacts intermédiaires. Les
+étiquettes rouges renvoient aux hypothèses du
+tableau~\ref{tab:hyp-a}. \code{df\_val\_edges} et \code{df\_test\_edges} ne servent
+qu'à élargir le jeu de nœuds et à produire les compteurs : ils ne sont pas passés à
+\code{build\_pyg\_data} (voir \hyp{H19}).}
+\end{center}
+
+\clearpage
+\subsection{Chaîne B --- construction des arêtes d'entraînement}
+
+\begin{center}
+\begin{tikzpicture}[font=\small]
+
+\node[tbl] (t1) at (-5.4,1.4) {ads\_adlog\_fct};
+\node[tbl] (t2) at (-1.8,1.4) {tracking\_product\_display\\\_page\_event\_fct};
+\node[tbl] (t3) at (1.8,1.4) {t2s\_merged\_user};
+
+\node[fn] (rec) at (-1.8,-0.4) {recommended\_products\_for\_t2s\_user\\\scriptsize jointure $\pm 3$\,s sur (productId, cookie, customerId)\\[1pt]\htg{H21 H22}};
+\draw[ar] (t1.south) -- ++(0,-0.6) -| (rec.north west);
+\draw[ar] (t2) -- (rec.north);
+\draw[ar] (t3.south) -- ++(0,-0.6) -| (rec.north east);
+
+\node[op] (j2) at (-1.8,-2.1) {jointure \code{inner} avec \code{df\_split}\\sur (internalId, emitted, userId) \htg{H23}};
+\draw[ar] (rec) -- (j2);
+\draw[arw] (-5.6,-2.1) -- node[lbl,pos=0.5]{df\_split (chaîne A)} (j2.west);
+
+\node[art] (drec) at (-1.8,-3.4) {\textbf{df\_recommended\_products\_t2s}\\\textbf{\_with\_sessions\_indexes} (\code{cache})};
+\draw[ar] (j2) -- (drec);
+
+% --- bloc positive_negative_edge_construction
+\node[fn] (ex) at (-4.6,-5.3) {explode(placements)\\+ slice top-12 + posexplode\\[1pt]\htg{H24 H25}};
+\node[art] (dre) at (-4.6,-6.7) {df\_recommended\_exploded\\\scriptsize (trigger, candidat, rang)};
+\draw[ar] (drec.south) -- ++(0,-0.5) -| (ex.north);
+\draw[ar] (ex) -- (dre);
+
+\node[fn] (pos) at (-7.0,-8.5) {positifs\\\scriptsize candidat $\in$ produits de la session\\[1pt]\htg{H26}};
+\node[fn] (neg) at (-2.6,-8.5) {négatifs\\\scriptsize $\lnot$session $\land$ $\lnot$arête train $\land$ $\lnot$positif\\[1pt]\htg{H27 H28}};
+\draw[ar] (dre.south) -- ++(0,-0.45) -| (pos.north);
+\draw[ar] (dre.south) -- ++(0,-0.45) -| (neg.north);
+\draw[arw] (1.1,-8.5) -- node[lbl,pos=0.45]{df\_train\_edges} (neg.east);
+
+\node[fn] (mrr) at (-7.0,-10.2) {MRR production\\\scriptsize matched-only / coverage-adjusted};
+\draw[ar] (pos) -- (mrr);
+
+\node[fn] (trunc) at (-2.6,-10.2) {troncature \code{rank} $\le$ \code{deepest\_pos\_rank}\\\scriptsize + \code{sample(fraction=0.0)}\\[1pt]\htg{H29}};
+\draw[ar] (neg) -- (trunc);
+
+\node[fn] (ec) at (-4.6,-11.9) {\code{exec2code} sur toutes les exécutions\\\scriptsize (tri $\rightarrow$ déterminisme) \htg{H31}};
+\draw[ar] (drec.east) -- (1.6,-3.4) -- node[lbl,pos=0.6,rotate=90]{toutes les executionId du split} (1.6,-11.9) -- (ec.east);
+
+\node[fn] (mapn) at (-4.6,-13.4) {\code{map(node2idx)} + \code{dropna}\\[1pt]\htg{H30}};
+\draw[ar] (mrr.south) -- ++(0,-2.4) -| (mapn.west);
+\draw[ar] (trunc.south) -- ++(0,-2.4) -| (mapn.east);
+\draw[ar] (ec) -- (mapn);
+
+\node[art] (tens) at (-4.6,-14.7) {\code{pos\_edge\_index}, \code{neg\_edge\_index}\\\scriptsize $[3, N]$ = (exec\_code, trigger, produit)};
+\draw[ar] (mapn) -- (tens);
+
+\begin{scope}[on background layer]
+  \node[draw=hypcol!45, dashed, rounded corners=4pt, fit=(ex)(pos)(neg)(mrr)(trunc)(ec)(mapn)(tens),
+        inner sep=7pt, label={[font=\sffamily\scriptsize\itshape, text=hypcol]above right:positive\_negative\_edge\_construction (appelée pour train, val, test)}] {};
+\end{scope}
+
+\end{tikzpicture}
+\end{center}
+
+\begin{center}
+\parbox{0.92\textwidth}{\footnotesize\itshape
+Figure 2 --- Chaîne B. Le cadre pointillé délimite l'unique fonction
+\code{positive\_negative\_edge\_construction}, appelée trois fois (train, val,
+test), toujours avec \code{df\_train\_edges} comme référence de négatifs.}
+\end{center}
+
+\subsection{Chaîne B$'$ --- tables de référence production (split \emph{val})}
+
+\begin{center}
+\begin{tikzpicture}[font=\small]
+
+\node[art] (drec2) at (0,0.8) {\textbf{df\_recommended\_products\_t2s\_with\_sessions\_indexes}, \code{split = val}};
+
+\node[fn] (vt) at (-5.0,-0.9) {val\_triggers\\\scriptsize\code{distinct} (user, session, exec, trigger)};
+\node[fn] (vp) at (3.5,-0.9) {val\_placements\_prototype\\\scriptsize posexplode(placements)\\+ \code{dropDuplicates(exec, pos)} \htg{H25}};
+\draw[ar] (drec2.south) -- ++(0,-0.35) -| (vt.north);
+\draw[ar] (drec2.south) -- ++(0,-0.35) -| (vp.north);
+
+\node[fn] (vsp) at (-5.0,-2.7) {val\_session\_products\\\scriptsize \code{collect\_list} des produits de la session};
+\draw[ar] (vt) -- (vsp);
+\draw[arw] (-8.0,-2.7) -- node[lbl,pos=0.5]{df\_split} (vsp.west);
+
+\node[art] (sr) at (-5.0,-4.4) {\textbf{sessions\_raw\_val\_prototype}\\\scriptsize $\rightarrow$ parquet S3};
+\draw[ar] (vsp) -- (sr);
+\draw[arw] (-1.6,-4.4) -- node[lbl,pos=0.5]{val\_exec2code} (sr.east);
+
+\node[fn] (pd) at (1.2,-2.7) {prod\_products\_by\_trigger\\\scriptsize \code{cands\_display} (ordre d'affichage)};
+\node[fn] (pr) at (5.8,-2.7) {prod\_products\_by\_trigger\\\scriptsize \code{cands\_relevance} (relevanceScore)};
+\draw[ar] (vp.south) -- ++(0,-0.5) -| (pd.north);
+\draw[ar] (vp.south) -- ++(0,-0.5) -| (pr.north);
+
+\node[fn] (apn) at (3.5,-4.4) {add\_pos\_neg\\\scriptsize positif = produit renvoyé $\in$ session\\[1pt]\htg{H32}};
+\draw[ar] (pd.south) -- ++(0,-0.5) -| (apn.north west);
+\draw[ar] (pr.south) -- ++(0,-0.5) -| (apn.north east);
+
+\node[fn] (dd) at (3.5,-6.0) {\code{dropDuplicates(["exec\_code"])}\\[1pt]\htg{H33}};
+\draw[ar] (sr.south) -- ++(0,-0.5) -| (dd.west);
+\draw[ar] (apn) -- (dd);
+
+\node[art] (pv) at (3.5,-7.3) {\textbf{prod\_results\_val\_prototype}\\\scriptsize $\rightarrow$ parquet S3};
+\draw[ar] (dd) -- (pv);
+
+\end{tikzpicture}
+\end{center}
+
+\begin{center}
+\parbox{0.92\textwidth}{\footnotesize\itshape
+Figure 3 --- Chaîne B$'$. Ces deux parquets ne servent pas à l'entraînement : ils
+donnent la baseline production sur \emph{val}, en deux variantes d'ordre des 12
+candidats. Aucun filtrage sur les arêtes du graphe n'y est appliqué, contrairement à
+la chaîne~B (\hyp{H27} vs \hyp{H32}).}
+\end{center}
+
+%======================================================================
+\clearpage
+\section{Parcours du notebook, cellule par cellule}
+
+Chaque étape est résumée en une ligne, suivie des hypothèses qu'elle pose.
+Les libellés complets sont dans les tableaux~\ref{tab:hyp-a} et~\ref{tab:hyp-b}.
+
+\subsection*{Cellules 0--2 --- session Spark et définition des fonctions}
+Aucune exécution de logique métier : \code{DatabricksSession}, installation de
+\code{torch\_geometric}, puis définition des sept fonctions de la chaîne~A.
+
+\subsection*{\cell{3} --- résolution du client et fenêtre temporelle}
+\begin{itemize}[nosep,leftmargin=*]
+  \item \code{get\_customer("maisons-du-monde")} puis \code{collect()} :
+        les \code{customerId}, \code{publisherId} et \code{db\_name} sont ramenés au
+        driver sous forme de listes. \hyp{H1}
+  \item \code{get\_products} et \code{get\_embeddings} sont câblés sur ces
+        \code{db\_names}. \hyp{H2} \hyp{H3} \hyp{H4} \hyp{H5}
+  \item Fenêtre : \code{start\_date = 2026-01-01}, \code{end\_date = 2026-05-01},
+        donc \code{cutoff\_train = 2026-04-01} et \code{cutoff\_val = 2026-04-16}.
+        Train $\approx$ 90 jours, val 15 jours, test 15 jours. \hyp{H9} \hyp{H17}
+  \item \code{get\_views} charge le tracking brut réconcilié par
+        \code{t2s\_merged\_user}. \hyp{H6} \hyp{H7} \hyp{H8}
+\end{itemize}
+
+\subsection*{\cell{4} --- sessions, splits et arêtes de co-vue}
+\begin{itemize}[nosep,leftmargin=*]
+  \item \code{df\_views.join(df\_products, "internalId", "inner")} : le filtre
+        catalogue est appliqué \emph{avant} la sessionisation, il peut donc scinder
+        des sessions. \hyp{H11}
+  \item \code{sessionize\_views} : coupure à 1800\,s d'inactivité, fenêtre
+        partitionnée par \code{userId} et ordonnée par
+        \code{(emitted, internalId)}. \hyp{H10}
+  \item \code{split\_sessions} : affectation train / val / test par
+        \code{session\_start}, puis \code{cache()}. \hyp{H17}
+  \item \code{build\_co\_view\_edges} sur chacun des trois sous-ensembles, puis
+        \code{remove\_train\_edges} sur val et test.
+        \hyp{H12} \hyp{H13} \hyp{H14} \hyp{H15} \hyp{H18}
+  \item \code{count\_nodes} sur l'union des trois jeux d'arêtes : le compteur affiché
+        inclut donc des nœuds qui n'auront aucune arête d'entraînement. \hyp{H19}
+\end{itemize}
+
+\subsection*{\cell{5} --- passage en pandas}
+\begin{itemize}[nosep,leftmargin=*]
+  \item \code{df\_graph\_nodes} = union des six colonnes d'extrémités
+        (train, val, test $\times$ A, B), \code{distinct}. \hyp{H19}
+  \item \code{toPandas()} sur les trois jeux d'arêtes : tout le graphe passe sur le
+        driver. Les embeddings sont restreints par jointure \code{inner} aux nœuds du
+        graphe.
+\end{itemize}
+
+\subsection*{Cellules 6--7 --- indexation des nœuds}
+\begin{itemize}[nosep,leftmargin=*]
+  \item \code{build\_node\_mapping} concatène les extrémités des trois jeux,
+        \code{unique()} puis \code{sort()} : l'index est l'ordre croissant des
+        \code{internalId}. \hyp{H20}
+  \item \code{remap\_edges} remplace les \code{internalId} par ces index. Un
+        identifiant absent du mapping devient \code{NaN} --- impossible ici, le
+        mapping étant construit sur ces mêmes tables.
+\end{itemize}
+
+\subsection*{\cell{8} --- matrice de features}
+\begin{itemize}[nosep,leftmargin=*]
+  \item \code{embedding\_dim} est lu sur la \emph{première} ligne de
+        \code{emb\_pandas} : dimension supposée homogène, garantie ici par le filtre
+        sur \code{last\_model\_id}. \hyp{H5}
+  \item \code{node\_features} est initialisée à zéro puis remplie par affectation
+        indexée. Un nœud sans embedding garde un vecteur nul, et le compteur
+        \code{Nodes without embedding} le mesure. \hyp{H5}
+  \item Si \code{emb\_pandas} contenait deux lignes pour un même \code{internalId},
+        la dernière écrase la précédente, dans l'ordre de collecte de Spark ---
+        non déterministe. \hyp{V10}
+\end{itemize}
+
+\subsection*{\cell{9} --- tensorisation}
+\begin{itemize}[nosep,leftmargin=*]
+  \item \code{edges\_to\_tensors(symmetric=True)} duplique chaque paire dans les deux
+        sens : $E$ double. \hyp{H16}
+  \item \code{val\_edge\_index} et \code{test\_edge\_index} sont calculés ici mais ne
+        sont \textbf{pas} passés à \code{build\_pyg\_data} (\cell{25}). \hyp{H19}
+\end{itemize}
+
+\subsection*{Cellules 10--11 --- rapprochement avec les logs publicitaires}
+\begin{itemize}[nosep,leftmargin=*]
+  \item \code{recommended\_products\_for\_t2s\_user} : jointure \code{inner} entre
+        \code{ads\_adlog\_fct} et le tracking sur
+        (\code{productId} = \code{fwProductId}, \code{userCookie} =
+        \code{user.cookie}, \code{customerId}) dans une fenêtre de $\pm 3$ secondes
+        autour de \code{logInstant}, restreinte à \code{pageType = "PRODUCT"}.
+        \hyp{H21} \hyp{H22}
+  \item Jointure avec \code{df\_split} sur le triplet exact
+        (\code{internalId}, \code{emitted}, \code{userId}) : chaque exécution hérite
+        de son \code{session\_id} et de son \code{split}. \hyp{H23}
+\end{itemize}
+
+\subsection*{\cell{12} --- positifs, négatifs et MRR production}
+\begin{itemize}[nosep,leftmargin=*]
+  \item Jointure trigger $\times$ produits de la session, sur
+        (\code{userId}, \code{session\_id}).
+  \item \code{explode(sponsoredProductPlacementExecutions)}, puis
+        \code{slice(relevantProducts, 1, 12)} et \code{posexplode} pour obtenir un
+        rang 1-based. \hyp{H24} \hyp{H25}
+  \item \textbf{Positif} : \code{internalId\_session = internalId\_candidate}, sans
+        aucune contrainte d'ordre temporel entre la vue et la recommandation.
+        \hyp{H26}
+  \item MRR production : rang minimal d'un positif par \code{executionId}, en deux
+        conventions (\emph{matched-only}, comparable à \code{MRR\_trigger} du modèle,
+        et \emph{coverage-adjusted}). Le dénominateur ne compte que les exécutions
+        présentes dans \code{df\_recommended\_exploded}. \hyp{E14}
+  \item \textbf{Négatif} : candidat non vu dans la session, non présent dans
+        \code{df\_train\_edges} (testé dans les deux sens), et non déjà positif.
+        Les positifs, eux, ne sont pas filtrés sur les arêtes existantes.
+        \hyp{H27} \hyp{H28}
+  \item Réduction du volume de négatifs : on ne garde que les rangs
+        $\le$ \code{deepest\_pos\_rank} de l'exécution, et les exécutions sans aucun
+        positif sont échantillonnées à \code{fraction=0.0}, donc totalement
+        écartées. \hyp{H29}
+  \item \code{exec2code} est construit sur l'union positifs $\cup$ négatifs
+        $\cup$ toutes les exécutions du split, puis \emph{trié} --- le commentaire du
+        code indique explicitement que sans ce tri le code dépendrait de l'ordre de
+        collecte de Spark. \hyp{H31}
+  \item \code{map(node2idx)} puis \code{dropna} : les candidats absents du graphe
+        disparaissent des positifs comme des négatifs. \hyp{H30}
+\end{itemize}
+
+\subsection*{Cellules 13--16 --- \code{sessions\_raw\_val\_prototype}}
+\begin{itemize}[nosep,leftmargin=*]
+  \item \code{val\_triggers} : triggers distincts du split val.
+  \item \code{val\_session\_products} : pour chaque trigger, la liste
+        (\code{internal\_id}, \code{emitted}) de tous les produits de sa session ---
+        y compris ceux vus \emph{après} le trigger. \hyp{H26}
+  \item Jointure \code{inner} sur \code{exec\_code} et contrôle de couverture
+        (\code{n\_triggers - n\_sessions} doit valoir 0). Écriture en parquet sur S3.
+\end{itemize}
+
+\subsection*{Cellules 17--21 --- \code{prod\_results\_val\_prototype}}
+\begin{itemize}[nosep,leftmargin=*]
+  \item \code{val\_placements\_prototype} : un placement identifié par
+        (\code{executionId}, \code{placement\_pos}), dédoublonné car la jointure
+        session duplique les lignes adlog. \hyp{H25}
+  \item Deux variantes du même tableau \code{relevantProducts} :
+        \code{cands\_display} (ordre du tableau) et \code{cands\_relevance}
+        (tri par \code{relevanceScore} décroissant, avec \code{internalId} comme
+        départage). \hyp{H24}
+  \item \code{prod\_products\_by\_trigger} fusionne les placements d'un trigger, prend
+        le rang minimal par produit, puis \code{row\_number} et coupe à 12.
+  \item \code{add\_pos\_neg} : positif = produit renvoyé appartenant à
+        \code{session\_ids}, sans aucun filtrage sur les arêtes du graphe. \hyp{H32}
+  \item \code{dropDuplicates(["exec\_code"])} : une exécution est réduite à un seul
+        trigger, choisi arbitrairement. \hyp{H33}
+\end{itemize}
+
+\subsection*{Cellules 22--23 --- diagnostic des deux variantes}
+Comparaison des ensembles \code{display} / \code{relevance}
+(\code{pct\_identical\_sets}, MRR dans les deux conventions). Si
+\code{pct\_identical\_sets} est proche de 1, les deux variantes sont équivalentes et
+la comparaison en aval est sans objet --- c'est un test de l'hypothèse \hyp{H24}.
+
+\subsection*{Cellules 24--29 --- assemblage et publication}
+\begin{itemize}[nosep,leftmargin=*]
+  \item \code{build\_pyg\_data} place les co-vues train dans \code{edge\_index} et les
+        paires ads dans \code{train\_pos\_edge\_index} /
+        \code{train\_neg\_edge\_index}. \hyp{H34}
+  \item \code{CoViewDataset} sérialise \code{data.pt} et \code{node2idx.json}, puis
+        \code{data\_prototype.pt}, \code{node2idx\_prototype.json} et
+        \code{exec\_mappings\_prototype.json} sont poussés sur S3 sous des chemins
+        suffixés \code{\_prototype} --- précisément parce que les \code{exec\_code}
+        diffèrent du pipeline principal. \hyp{H31} \hyp{V13}
+\end{itemize}
+
+%======================================================================
+\clearpage
+\section{Hypothèses de la chaîne A --- le graphe}
+\label{sec:hyp-a}
+
+{\small
+\begin{longtable}{@{}l p{2.45cm} p{5.9cm} p{4.5cm}@{}}
+\toprule
+\textbf{Id} & \textbf{Étape} & \textbf{Hypothèse métier} & \textbf{Si elle est fausse} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Id} & \textbf{Étape} & \textbf{Hypothèse métier} & \textbf{Si elle est fausse} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+
+H1 & \code{get\_customer} & Le \code{shortName} désigne un client unique, qui possède un \emph{publisher} dans le namespace \code{artemis-prod}. & La jointure \code{inner} rend le client invisible, ou \code{collect()} renvoie plusieurs \code{db\_name} et le graphe mélange deux catalogues. \\
+\addlinespace
+H2 & \code{get\_products} & Le catalogue \emph{courant} vaut pour toute la fenêtre historique : un produit actif aujourd'hui l'était déjà lors des vues de janvier. & Les produits désactivés depuis sont retirés du graphe alors que leurs vues existaient : le graphe rétrécit à mesure que l'on relance tard. \\
+\addlinespace
+H3 & \code{get\_products} & Seuls les produits maîtres (\code{parentId = -1}) portent le signal ; le tracking a déjà ramené les vues de déclinaisons au maître. & Le signal des déclinaisons est perdu, ou au contraire agrégé alors que les déclinaisons se comportent différemment. \\
+\addlinespace
+H4 & \code{get\_products} & \code{isActive} $\land$ \code{isOkInStream} = « produit recommandable » ; les autres n'ont pas à être des nœuds. & Des produits recommandés en production sont absents du graphe, donc non scorables (voir \hyp{H30}). \\
+\addlinespace
+H5 & \code{get\_embeddings}, \cell{8} & Un seul modèle d'embedding (\code{last\_model\_id} figé), une ligne par produit, dimension homogène ; embedding absent $\rightarrow$ vecteur nul. & Doublons $\rightarrow$ écrasement non déterministe ; le vecteur nul est traité par le modèle comme un point du même espace, pas comme un « inconnu ». \\
+\addlinespace
+H6 & \code{get\_views} & Un événement \code{product\_display\_page\_event} = une vue produit. Pas de pondération par durée ou scroll, pas de déduplication des rafraîchissements. & Un rechargement de page compte comme une vue supplémentaire ; les vues de bots gonflent les sessions (voir \hyp{H14}). \\
+\addlinespace
+H7 & \code{get\_views} & \code{t2s\_merged\_user} est fonctionnel (un \code{sourceId} $\rightarrow$ un \code{masterId}) et l'identité réconciliée est la bonne granularité de session. & Plusieurs \code{masterId} pour un \code{sourceId} dupliquent les lignes de vues et \emph{doublent} les poids d'arêtes. Fusionner les appareils enchaîne des navigations parallèles dans une même session. \\
+\addlinespace
+H8 & \code{get\_views} & Trafic non identifié (\code{user.internalId} null) et vue non résolue en produit maître ne portent pas de signal exploitable. & Une part importante du trafic --- typiquement les visiteurs non logués --- ne contribue à aucune arête. \\
+\addlinespace
+H9 & \cell{3} & \code{emitted.between(start\_date, end\_date)} : les bornes sont des \emph{dates} converties en timestamps à minuit, donc la journée du \code{end\_date} est de fait exclue. & La fenêtre réelle est de 120 jours et non 121 ; un décalage d'un jour entre le graphe et un autre calcul qui utiliserait la même variable. \\
+\addlinespace
+H10 & \code{sessionize\_views} & Une session = 30 minutes d'inactivité, par utilisateur réconcilié, tous appareils confondus. Le tri \code{(emitted, internalId)} rend la coupure déterministe en cas d'\emph{ex æquo}. & Un temps de réflexion long scinde une intention d'achat en deux sessions ; deux intentions rapprochées fusionnent. Voir aussi \hyp{V12} pour la sémantique du \code{cast("long")}. \\
+\addlinespace
+H11 & \cell{4} & Le filtre catalogue s'applique \emph{avant} la sessionisation. & Retirer une vue au milieu d'une session allonge l'écart entre ses voisines : une session peut se scinder en deux, ou perdre des produits. Le catalogue modifie donc la \emph{sessionisation}, pas seulement le jeu de nœuds. \\
+\addlinespace
+H12 & \code{build\_co\_view\_edges} & Deux produits vus dans la même session sont liés, indépendamment de l'ordre, de l'écart de temps et de la distance dans la session. & Une session de navigation exploratoire produit un graphe complet de produits sans rapport ; le signal séquentiel (A puis B) est perdu. \\
+\addlinespace
+H13 & \code{build\_co\_view\_edges} & Une session compte une fois par paire (\code{distinct} avant la self-jointure) : le poids d'une arête = nombre de sessions distinctes contenant la paire. & Un utilisateur qui compare intensément deux produits ne pèse pas plus qu'une co-vue fortuite au sein d'une session. \\
+\addlinespace
+H14 & \code{build\_co\_view\_edges} & \code{USE\_SESSION\_WEIGHT\_NORM = False} : toutes les sessions pèsent pareil. Une session de $n$ produits produit $\binom{n}{2}$ paires de poids 1. & Une session de 50 produits (bot, crawler, comparateur) apporte 1225 arêtes contre 1 pour une session de 2 produits : le graphe est dominé par les sessions longues. Dans cette configuration \code{weight} et \code{raw\_count} sont identiques. \\
+\addlinespace
+H15 & \code{build\_co\_view\_edges} & Aucun seuil minimal de poids : une co-occurrence unique est une arête à part entière. & Le graphe est majoritairement constitué d'arêtes de poids 1, c'est-à-dire de coïncidences --- et ce sont exactement celles qui varient d'un run à l'autre (\hyp{V6}). \\
+\addlinespace
+H16 & \code{build\_co\_view\_edges}, \code{edges\_to\_tensors} & La co-vue est symétrique et sans boucle : \code{A < B} canonise la paire, puis \code{symmetric=True} la duplique dans les deux sens. & Aucune asymétrie de type « B est un accessoire de A » n'est représentable. \\
+\addlinespace
+H17 & \code{split\_sessions} & Découpage temporel à la granularité \emph{session} (\code{session\_start}), pas à celle de l'événement. & Une session commencée avant \code{cutoff\_train} et poursuivie après reste entièrement dans train : de l'information postérieure à la coupure entre dans l'entraînement. \\
+\addlinespace
+H18 & \code{remove\_train\_edges} & Une paire évaluée doit être inédite vis-à-vis du graphe d'entraînement. & Sans cela on mesurerait la mémorisation. Noter que val et test ne sont pas dédoublonnés \emph{entre eux} : une même paire peut être dans les deux. \\
+\addlinespace
+H19 & \cell{5}, \code{build\_node\_mapping} & Le jeu de nœuds est l'union train $\cup$ val $\cup$ test. & Des nœuds existent dans le graphe sans aucune arête d'entraînement (isolés), uniquement parce qu'ils ont été co-vus pendant val ou test. Ils augmentent \code{num\_nodes} et donc la taille des couches d'embedding. Les tenseurs \code{val\_edge\_index} / \code{test\_edge\_index} de co-vue ne servent, eux, qu'aux compteurs. \\
+\addlinespace
+H20 & \code{build\_node\_mapping} & Les index de nœuds sont l'ordre croissant des \code{internalId}. & Reproductible à jeu de nœuds identique ; mais l'ajout d'un seul produit décale tous les index suivants et rend un \code{data.pt} incompatible avec un \code{node2idx.json} d'un autre run (\hyp{V13}). \\
+
+\end{longtable}
+}
+\refstepcounter{table}\label{tab:hyp-a}
+\begin{center}\footnotesize\itshape Tableau \thetable{} --- Hypothèses de la chaîne A.\end{center}
+
+%======================================================================
+\clearpage
+\section{Hypothèses de la chaîne B --- les arêtes d'entraînement}
+\label{sec:hyp-b}
+
+{\small
+\begin{longtable}{@{}l p{2.45cm} p{5.9cm} p{4.5cm}@{}}
+\toprule
+\textbf{Id} & \textbf{Étape} & \textbf{Hypothèse métier} & \textbf{Si elle est fausse} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Id} & \textbf{Étape} & \textbf{Hypothèse métier} & \textbf{Si elle est fausse} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+
+H21 & \code{recommended\_products\_for\_t2s\_user} & Un log ad et une vue produit du même cookie, du même produit et du même client, séparés de moins de 3 secondes, sont le \emph{même} événement. & Fenêtre trop large : plusieurs vues apparient un même log et dupliquent les lignes. Trop étroite : un log est perdu par latence réseau ou décalage d'horloge. C'est le paramètre le plus sensible de la chaîne~B. \\
+\addlinespace
+H22 & idem & Seules les pages \code{PRODUCT} portent une recommandation exploitable. & Les recommandations de la page d'accueil, de la recherche et des pages catégorie sont hors périmètre. \\
+\addlinespace
+H23 & \cell{11} & Le triplet exact (\code{internalId}, \code{emitted}, \code{userId}) identifie la vue déclencheuse, donc rattache l'exécution à sa session. & Un double envoi du tracking au même timestamp duplique l'exécution. Et si la vue déclencheuse n'a pas survécu au filtre catalogue (\hyp{H2}), l'exécution est perdue (\hyp{E11}). \\
+\addlinespace
+H24 & \cell{12}, \cell{18} & L'ordre du tableau \code{relevantProducts} est l'ordre d'affichage réel, et seuls les 12 premiers comptent. & Le commentaire du code prévoit explicitement la variante par score (\code{relevanceScore}, \code{performanceScore}, \code{fusionScore}) ; les cellules 17--23 la calculent et mesurent l'écart entre les deux ordres. \\
+\addlinespace
+H25 & \cell{12}, \cell{18} & Tous les placements sponsorisés d'une exécution sont fusionnés, le rang retenu est le rang minimal atteint. Le \code{dropDuplicates(["executionId","placement\_pos"])} suppose que les lignes dupliquées par la jointure session portent des \code{candidates} identiques. & Deux placements concurrents sur une même page sont traités comme une seule liste ordonnée. \\
+\addlinespace
+H26 & \cell{12}, \cell{15} & \textbf{Positif} = candidat recommandé \emph{et} vu dans la même session --- sans contrainte temporelle : un produit vu \emph{avant} la recommandation compte comme positif. & C'est une fuite temporelle dans la définition du label : une partie des « clics prédits » sont des produits déjà visités, que le modèle peut retrouver par le graphe plutôt que par une vraie prédiction. \\
+\addlinespace
+H27 & \cell{12} & \textbf{Négatif} = candidat recommandé, non vu dans la session, \emph{et} absent des arêtes d'entraînement (testées dans les deux sens). & Évite d'apprendre contre des faux négatifs, mais retire les négatifs les plus difficiles --- ceux qui ressemblent le plus à des positifs. \\
+\addlinespace
+H28 & \cell{12} & Asymétrie assumée : les négatifs sont filtrés sur les arêtes du graphe d'entraînement, les positifs ne le sont pas. & Les positifs peuvent être des arêtes déjà présentes dans \code{edge\_index}, les négatifs jamais. Un modèle qui apprend seulement « cette paire est-elle une arête du graphe d'entrée ? » obtient un bon MRR sans généraliser. À quantifier : part des positifs déjà arêtes de train. \\
+\addlinespace
+H29 & \cell{12} & Négatifs tronqués au rang du positif le plus profond de l'exécution ; les exécutions sans positif sont écartées (\code{sample(fraction=0.0, seed=42)}). & Le modèle ne voit jamais de liste purement négative, alors que la production en produit. La \code{fraction} est un levier laissé à 0, pas une propriété du problème. \\
+\addlinespace
+H30 & \cell{12} & Un candidat absent de \code{node2idx} n'est pas scorable, donc \code{dropna} le supprime. & Le MRR du modèle porte sur une liste de candidats \emph{filtrée}, le MRR production affiché juste au-dessus sur la liste \emph{complète} : les deux ne sont pas strictement comparables tant que le taux de perte n'est pas mesuré. \\
+\addlinespace
+H31 & \cell{12} & \code{exec2code} couvre toutes les exécutions du split (indépendamment du label) et est rendu stable par tri. & Stable à jeu d'exécutions identique seulement : la moindre exécution en plus ou en moins renumérote tout et invalide les parquets déjà écrits (\hyp{V13}). \\
+\addlinespace
+H32 & \cell{20} & Pour les tables de référence production, le positif est défini par simple appartenance aux produits de la session, \emph{sans} filtrage sur les arêtes du graphe. & Choix explicite dans le notebook : on veut le vrai retour production. Conséquence : la baseline et le modèle ne sont pas évalués sur exactement la même définition de positif (\hyp{H27}). \\
+\addlinespace
+H33 & \cell{20} & Une exécution = un trigger : \code{dropDuplicates(["exec\_code"])}. & Si une exécution a été rattachée à plusieurs triggers ou à plusieurs sessions par la jointure $\pm 3$\,s, la ligne conservée est arbitraire, donc variable d'un run à l'autre (\hyp{V11}). \\
+\addlinespace
+H34 & \cell{25} & Le \emph{message passing} circule sur les co-vues, la tête de prédiction apprend sur les paires ads : deux sémantiques d'arête coexistent dans le même objet \code{Data}. & Cohérent si les co-vues sont vues comme une structure de voisinage et les paires ads comme la tâche. Il faut simplement ne jamais interpréter un score comme « probabilité de co-vue ». \\
+
+\end{longtable}
+}
+\refstepcounter{table}\label{tab:hyp-b}
+\begin{center}\footnotesize\itshape Tableau \thetable{} --- Hypothèses de la chaîne B.\end{center}
+
+%======================================================================
+\clearpage
+\section{Ce qui peut être exclu du graphe}
+\label{sec:exclusions}
+
+Chaque filtre et chaque jointure \code{inner} du pipeline retire des lignes sans
+alerte. Le tableau ci-dessous les liste dans l'ordre du flux : c'est l'inventaire à
+instrumenter si l'on veut savoir combien de signal est perdu et où.
+
+{\small
+\begin{longtable}{@{}l p{3.2cm} p{4.4cm} p{5.2cm}@{}}
+\toprule
+\textbf{Id} & \textbf{Étape} & \textbf{Mécanisme} & \textbf{Ce qui disparaît} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Id} & \textbf{Étape} & \textbf{Mécanisme} & \textbf{Ce qui disparaît} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+
+E1 & \code{get\_customer} & jointure \code{inner} clients / publishers & Un client sans \emph{publisher} \code{artemis-prod} : le notebook s'exécute alors sur des listes vides sans erreur. \\
+E2 & \code{get\_products} & \code{isActive}, \code{isOkInStream} & Produits désactivés ou hors flux au moment du run (pas au moment de la vue). \\
+E3 & \code{get\_products} & \code{parentId = -1} & Toutes les déclinaisons. \\
+E4 & \code{get\_embeddings} & \code{last\_model\_id} figé & Produits embeddés par une autre version : pas exclus du graphe, mais réduits à un vecteur nul. \\
+E5 & \code{get\_views} & \code{user.internalId} non nul & Trafic non identifié. \\
+E6 & \code{get\_views} & \code{masterProductInternalId} non nul & Vues non résolues en produit maître. \\
+E7 & \code{get\_views} & \code{emitted.between(...)} & Journée du \code{end\_date} (bornes prises à minuit, \hyp{H9}). \\
+E8 & \cell{4} & jointure \code{inner} vues / catalogue & Vues sur des produits absents du catalogue courant --- et, par effet de bord, la sessionisation des vues restantes change (\hyp{H11}). \\
+E9 & \code{build\_co\_view\_edges} & self-jointure \code{L.internalId < R.internalId} & Sessions à un seul produit distinct : elles ne produisent aucune arête, quel que soit leur volume. \\
+E10 & \code{remove\_train\_edges} & \code{left\_anti} & Paires val/test déjà vues en train. \\
+E11 & \code{recommended\_products\_for\_t2s\_user} & \code{pageType = "PRODUCT"}, fenêtre $\pm 3$\,s, \code{publisherId isin(...)} & Recommandations hors page produit ; logs non appariés à une vue ; logs d'un \code{publisherId} non résolu. \\
+E12 & \cell{11} & jointure \code{inner} sur (\code{internalId}, \code{emitted}, \code{userId}) & Exécutions dont la vue déclencheuse n'a pas survécu à \hyp{E5}--\hyp{E8}. \\
+E13 & \cell{12} & \code{explode(sponsoredProductPlacementExecutions)} & Exécutions sans placement sponsorisé (tableau vide ou nul). \\
+E14 & \cell{12} & \code{slice(relevantProducts, 1, 12)} & Candidats au-delà du rang 12 --- y compris les positifs qui s'y trouvaient, ce qui plafonne mécaniquement le MRR production. \\
+E15 & \cell{12} & \code{is\_existing\_edge} & Paires candidates déjà arêtes du graphe d'entraînement, côté négatifs uniquement (\hyp{H28}). \\
+E16 & \cell{12} & \code{rank} $\le$ \code{deepest\_pos\_rank} & Négatifs plus profonds que le positif le plus profond. \\
+E17 & \cell{12} & \code{sample(fraction=0.0, seed=42)} & \emph{Tous} les négatifs des exécutions sans positif. \\
+E18 & \cell{12} & \code{map(node2idx)} + \code{dropna} & Paires dont un produit n'est pas un nœud du graphe (\hyp{H30}). \\
+E19 & \cell{20} & \code{dropDuplicates(["exec\_code"])} & Triggers surnuméraires d'une même exécution, choisis arbitrairement. \\
+
+\end{longtable}
+}
+\refstepcounter{table}\label{tab:exclusions}
+\begin{center}\footnotesize\itshape Tableau \thetable{} --- Points d'exclusion, dans l'ordre du flux.\end{center}
+
+\paragraph{Les deux exclusions à mesurer en priorité.}
+\hyp{E8} conditionne tout l'amont : la taille du graphe est celle du catalogue au
+jour du run, pas au jour des vues. \hyp{E18} conditionne toute la comparaison au
+MRR production : tant que la proportion de candidats perdus n'est pas affichée, on
+ne sait pas si le modèle est comparé à la baseline sur la même population.
+
+%======================================================================
+\clearpage
+\section{Pourquoi deux runs donnent des graphes différents}
+\label{sec:variabilite}
+
+Le notebook ne fixe aucune version de table. Deux exécutions séparées de quelques
+jours, \emph{sur la même fenêtre de dates}, lisent des données différentes. Les
+causes se rangent en quatre familles.
+
+\subsection{Sources amont non figées}
+
+\begin{itemize}[leftmargin=*]
+  \item \hyp{V1} \textbf{Le catalogue est un instantané.}
+        \code{t2s\_mongo\_product\_0\_current} est, comme son nom l'indique, l'état
+        \emph{courant}. \code{isActive}, \code{isOkInStream} et \code{parentId}
+        évoluent : un produit désactivé entre deux runs disparaît du graphe, y
+        compris pour les vues de janvier. C'est la première cause d'écart, et elle
+        est monotone dans le temps --- plus on relance tard, plus le graphe rétrécit.
+  \item \hyp{V2} \textbf{La table d'embeddings s'enrichit.} Le filtre sur
+        \code{last\_model\_id} fige le modèle, mais pas la population : les produits
+        embeddés depuis le run précédent passent du vecteur nul à un vrai vecteur.
+        Le compteur \code{Nodes without embedding} en est le témoin direct.
+  \item \hyp{V3} \textbf{Le tracking reçoit des données tardives.} Événements
+        arrivés en retard, retraitements et réécritures de partitions modifient le
+        contenu d'une fenêtre historique déjà passée.
+  \item \hyp{V4} \textbf{\code{t2s\_merged\_user} évolue.} La réconciliation
+        d'identités s'améliore avec le temps : deux \code{userId} distincts hier
+        deviennent un seul \code{masterId} aujourd'hui. Leurs vues fusionnent, les
+        sessions changent, de nouvelles paires apparaissent --- \emph{sans qu'aucun
+        événement nouveau n'ait été émis}. C'est la cause la plus contre-intuitive.
+  \item \hyp{V5} \textbf{Rétention des logs publicitaires.} Si
+        \code{ads\_adlog\_fct} a une durée de conservation bornée, relancer plus tard
+        sur la même fenêtre donne moins d'exécutions, donc moins de positifs et un
+        MRR production différent. \emph{À vérifier} sur la table --- le notebook
+        n'en dit rien.
+\end{itemize}
+
+\subsection{Amplification : une petite variation d'entrée, un grand écart en sortie}
+
+Le pipeline est quadratique par construction, ce qui transforme un écart marginal
+en entrée en écart massif en sortie.
+
+\begin{itemize}[leftmargin=*]
+  \item \hyp{V6} \textbf{Une vue de plus dans une session de $n$ produits ajoute
+        jusqu'à $n$ arêtes.} Et comme aucun seuil de poids n'est appliqué
+        (\hyp{H15}), ces arêtes de poids 1 entrent telles quelles dans le graphe.
+  \item \hyp{V7} \textbf{Une fusion d'utilisateurs enchaîne deux sessions.} Si deux
+        sessions de tailles $a$ et $b$ fusionnent, on passe de
+        $\binom{a}{2} + \binom{b}{2}$ à $\binom{a+b}{2}$ paires, soit
+        $a \times b$ arêtes créées d'un coup.
+  \item \hyp{V8} \textbf{Retirer une vue intermédiaire peut scinder une session en
+        deux} (\hyp{H11}) : les paires qui traversaient la coupure disparaissent
+        toutes ensemble.
+  \item \hyp{V9} \textbf{Les sessions longues dominent} (\hyp{H14}) : une seule
+        session de bot en plus ou en moins déplace des milliers d'arêtes.
+\end{itemize}
+
+\subsection{Non-déterminisme interne au notebook (mêmes entrées, sortie différente)}
+
+\begin{itemize}[leftmargin=*]
+  \item \hyp{V10} \code{node\_features[positions] = emb\_matrix} (\cell{8}) : si un
+        \code{internalId} a plusieurs lignes d'embedding, la dernière écrite gagne,
+        dans l'ordre de collecte de Spark --- qui n'est pas garanti.
+  \item \hyp{V11} \code{dropDuplicates(["exec\_code"])} (\cell{20}) et
+        \code{dropDuplicates(["executionId","placement\_pos"])} (\cell{18}) :
+        Spark conserve une ligne \emph{arbitraire}, pas une ligne définie par un tri.
+  \item \hyp{V12} \code{(emitted - lag(emitted)).cast("long")}
+        (\code{sessionize\_views}) : le résultat de la soustraction de deux
+        timestamps, et sa conversion en \code{long}, dépendent de la version de Spark
+        et du mode d'intervalles ANSI. Le code suppose des \emph{secondes}, cohérent
+        avec \code{session\_timeout = 1800}. \emph{À vérifier} avant tout changement
+        d'environnement : une autre unité ferait de chaque vue une session isolée, et
+        le graphe s'effondrerait silencieusement.
+  \item \hyp{V13} \textbf{Couplage des artefacts.} \code{node2idx} (\hyp{H20}) et
+        \code{exec\_code} (\hyp{H31}) sont deux renumérotations globales : elles sont
+        stables à jeu constant, et entièrement décalées dès qu'un nœud ou une
+        exécution apparaît. Un \code{data.pt} ne peut donc être lu qu'avec le
+        \code{node2idx.json}, les \code{exec\_mappings.json} et les parquets
+        \emph{du même run}. C'est exactement ce que dit le commentaire de la
+        \cell{28} pour justifier le suffixe \code{\_prototype}.
+  \item \hyp{V14} \textbf{Un run long peut chevaucher une mise à jour amont.}
+        \code{df\_split} est mis en cache, mais \code{df\_train\_edges} ne l'est pas
+        et il est réévalué à chaque usage (compteurs, \code{df\_graph\_nodes},
+        \code{toPandas}, puis trois appels à
+        \code{positive\_negative\_edge\_construction}). Si le cache est évincé ou si
+        une table amont change en cours de run, deux parties du même graphe peuvent
+        être calculées sur deux instantanés différents.
+\end{itemize}
+
+\subsection{Paramètres qui changent le graphe à données constantes}
+
+\begin{center}\small
+\begin{tabular}{@{}l l p{7.6cm}@{}}
+\toprule
+\textbf{Paramètre} & \textbf{Valeur} & \textbf{Effet} \\
+\midrule
+\code{session\_timeout} & \code{1800} & Frontières de session, donc toutes les paires (\hyp{H10}). \\
+\code{start\_date} / \code{end\_date} & \code{2026-01-01} / \code{2026-05-01} & Volume total ; dernier jour exclu (\hyp{H9}). \\
+\code{cutoff\_train} / \code{cutoff\_val} & $-30$\,j / $-15$\,j & Répartition train/val/test (\hyp{H17}). \\
+\code{USE\_SESSION\_WEIGHT\_NORM} & \code{False} & Poids des sessions longues (\hyp{H14}). \\
+\code{last\_model\_id} & \code{06bbe57\dots} & Population des nœuds avec features (\hyp{H5}). \\
+fenêtre adlog/tracking & $\pm 3$\,s & Nombre d'exécutions appariées (\hyp{H21}). \\
+\code{slice(..., 1, 12)} / \code{TOP\_K} & \code{12} & Plafond du MRR production (\hyp{E14}). \\
+\code{sample(fraction=...)} & \code{0.0} & Négatifs des exécutions sans positif (\hyp{H29}). \\
+\code{symmetric} & \code{True} & Nombre d'arêtes doublé (\hyp{H16}). \\
+seuil de poids minimal & \emph{absent} & Bruit et instabilité du graphe (\hyp{H15}). \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Rendre un run reproductible}
+
+Par ordre d'efficacité, et sans changer la logique métier :
+
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{Figer les instantanés.} Lire chaque table en \emph{time travel} Delta
+        (\code{VERSION AS OF} / \code{TIMESTAMP AS OF}) et journaliser la version
+        retenue à côté du \code{data.pt}. C'est ce qui neutralise
+        \hyp{V1}--\hyp{V5} et \hyp{V14} d'un seul coup.
+  \item \textbf{Reconstruire le catalogue à la date de la vue} plutôt qu'au jour du
+        run, si une table historisée existe --- sinon assumer \hyp{H2} et le noter
+        dans les métadonnées du dataset.
+  \item \textbf{Rendre les déduplications déterministes} : remplacer les
+        \code{dropDuplicates} de \hyp{V11} par un \code{row\_number} sur un tri
+        explicite, et dédoublonner les embeddings sur
+        \code{max(last\_update\_date)} avant la \cell{8} (\hyp{V10}).
+  \item \textbf{Publier un manifeste de run} : versions de tables, valeurs des
+        paramètres du tableau ci-dessus, \code{num\_nodes}, nombre d'arêtes par
+        split, \code{Nodes without embedding}, taux de perte de \hyp{E18}. Deux runs
+        deviennent alors comparables même s'ils diffèrent.
+  \item \textbf{Instrumenter les exclusions} \hyp{E1}--\hyp{E19} par un compteur de
+        lignes avant/après. Un écart inexpliqué entre deux runs se localise ainsi en
+        une lecture.
+  \item \textbf{Introduire un seuil de poids minimal} (\hyp{H15}) et/ou une
+        normalisation par taille de session (\hyp{H14}) : c'est le levier le plus
+        direct pour stabiliser le graphe, puisqu'il supprime précisément les arêtes
+        qui varient.
+\end{enumerate}
+
+%======================================================================
+\section{Les cinq points à trancher}
+
+Résumé pour décision, hors reproductibilité :
+
+\begin{enumerate}[leftmargin=*]
+  \item \hyp{H26} --- un positif peut être un produit vu \emph{avant} la
+        recommandation. À restreindre à \code{emitted > logInstant} si l'on veut
+        mesurer une prédiction et non une co-occurrence.
+  \item \hyp{H28} --- les négatifs excluent les arêtes du graphe, les positifs non.
+        Mesurer la part de positifs déjà présents dans \code{edge\_index} : c'est le
+        plafond de ce que le modèle peut obtenir sans généraliser.
+  \item \hyp{H30} et \hyp{E18} --- MRR modèle sur candidats filtrés contre MRR
+        production sur candidats complets. Afficher le taux de perte, sinon les deux
+        chiffres ne se comparent pas.
+  \item \hyp{H14} et \hyp{H15} --- absence de normalisation par session et de seuil
+        de poids : le graphe est dominé par les sessions longues et les coïncidences.
+  \item \hyp{H19} --- les nœuds val/test sans arête d'entraînement gonflent
+        \code{num\_nodes}. Décider s'ils doivent être des nœuds isolés du graphe
+        d'entraînement ou en être retirés.
+\end{enumerate}
+
+\end{document}

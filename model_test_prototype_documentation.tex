@@ -1,0 +1,84 @@
+% !TEX program = pdflatex
+% Documentation fonction par fonction de model_test_prototype.ipynb
+% Compilation : pdflatex model_test_prototype_documentation.tex (2 passes pour les références)
+
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[french]{babel}
+\usepackage{lmodern}
+\usepackage[margin=2.2cm]{geometry}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{longtable}
+\usepackage{xcolor}
+\usepackage[hidelinks]{hyperref}
+
+% Désactive les espacements automatiques du français devant ; : ! ?
+\shorthandoff*{;:!?}
+
+\newcommand{\code}[1]{\texttt{\small #1}}
+
+\title{Documentation de \code{model\_test\_prototype.ipynb}}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+%======================================================================
+\section{Hypothèses métier}
+\label{sec:hypotheses}
+
+{\small
+\begin{longtable}{@{}l p{2.45cm} p{5.9cm} p{4.5cm}@{}}
+\toprule
+\textbf{Id} & \textbf{Étape} & \textbf{Hypothèse métier} & \textbf{Si elle est fausse} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Id} & \textbf{Étape} & \textbf{Hypothèse métier} & \textbf{Si elle est fausse} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+
+H1 & \url{extract_all_triggers} & Un \code{exec\_code} correspond à un seul
+\code{trigger\_internal\_id} : \code{dropDuplicates(["exec\_code"])} n'a rien à départager. &
+Le \code{trigger\_internal\_id} retenu est arbitraire, et les jointures avals portent sur le
+mauvais produit déclencheur. \\
+\addlinespace
+H2 & \url{extract_all_triggers} & Un trigger n'est évaluable que si son produit déclencheur est un
+nœud du graphe de co-vue (\code{trigger\_internal\_id in node2idx}). & Les triggers hors catalogue
+actif sortent silencieusement de la population évaluée ; seul \code{skipped\_no\_node} le révèle. \\
+
+\end{longtable}
+}
+\refstepcounter{table}\label{tab:hypotheses}
+\begin{center}\footnotesize\itshape Tableau \thetable{} --- Hypothèses métier.\end{center}
+
+%======================================================================
+\clearpage
+\section{Ce qui peut être exclu de l'évaluation}
+\label{sec:exclusions}
+
+{\small
+\begin{longtable}{@{}l p{3.2cm} p{4.4cm} p{5.2cm}@{}}
+\toprule
+\textbf{Id} & \textbf{Étape} & \textbf{Mécanisme} & \textbf{Ce qui disparaît} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Id} & \textbf{Étape} & \textbf{Mécanisme} & \textbf{Ce qui disparaît} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+
+\end{longtable}
+}
+\refstepcounter{table}\label{tab:exclusions}
+\begin{center}\footnotesize\itshape Tableau \thetable{} --- Ce qui peut être exclu de l'évaluation.\end{center}
+
+\end{document}

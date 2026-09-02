@@ -1,0 +1,102 @@
+command:
+  - python
+  - /Workspace/Users/neil.braun@mirakl.com/.bundle/fast-gnn-benchmark/dev/files/scripts/wandb_sweep_agent.py
+
+name: gae_sage_coview_mdm_128_muon_sweep
+
+method: bayes # random, grid, bayes
+
+metric:
+  goal: maximize
+  name: val/mrr_trigger
+
+# 8 dimensions -> ~10 runs/dimension pour que le surrogate bayesien soit exploitable.
+# A 30 min/run et un seul agent (wandb_sweep_launch.py lance un `wandb agent` sequentiel),
+# compter ~40h. Lancer plusieurs fois le job sur le meme sweep_id pour paralleliser.
+run_cap: 30
+
+# ATTENTION: min_iter se compte en metriques reportees, pas en epoques. Avec
+# check_val_every_n_epoch: 4 dans le config de base, min_iter: 10 vaut ~40 epoques.
+# Biais connu: les runs tues remontent leur meilleure metrique partielle, ce qui favorise
+# les configs qui demarrent vite (output_dim: 64 devant output_dim: 512).
+early_terminate:
+  type: hyperband
+  min_iter: 10
+  eta: 3
+
+parameters:
+  base_config_file:
+    values:
+      - /Workspace/Users/neil.braun@mirakl.com/.bundle/fast-gnn-benchmark/dev/files/configs/link_prediction/gae_sage_coview_mdm_128_muon.yml
+
+  # T_max du scheduler cosine doit rester egal a max_epochs: le sweep ne peut pas deriver l'un
+  # de l'autre, donc les deux sont epingles avec `value`. Avec max_time: 30 min aucun run
+  # n'atteint la fin du cosine -- la troncature est identique pour tous, le classement reste
+  # equitable, mais le lr n'a quasiment pas anneale. Recaler les trois sur ce que le run
+  # coview-mdm-training-sage-128-muon atteint reellement en 30 min.
+  trainer_config:
+    parameters:
+      max_time:
+        value: "00:00:40:00"
+      max_epochs:
+        value: 500
+
+  model_parameters:
+    parameters:
+      architecture_parameters:
+        parameters:
+          # hidden_dim reste a 128: output_dim gouverne la largeur de la tete
+          # (link_prediction.py:44 lui passe architecture_parameters.output_dim) et c'est le
+          # vecteur qu'on indexera en ANN, c'est donc lui qui a une valeur en soi.
+          output_dim:
+            values: [64, 128, 256, 512]
+          num_layers:
+            values: [2, 3, 4]
+          dropout:
+            values: [0.0, 0.1, 0.2, 0.3]
+
+      link_predictor_parameters:
+        parameters:
+          parameters:
+            parameters:
+              num_layers:
+                values: [2, 3, 4]
+
+      # adjust_lr_fn reste fige a match_rms_adamw (valeur du config de base): c'est un
+      # categoriel qui change l'echelle du lr (~5x entre les deux regimes), une seule plage
+      # log_uniform devrait couvrir les deux et le surrogate depenserait son budget a
+      # apprendre l'interaction au lieu de l'archi.
+      # ns_steps et nesterov sont laisses aux defauts torch: effet faible, ils valent un
+      # mini-sweep de 6 runs a la fin, pas une dimension ici.
+      optimizer:
+        parameters:
+          parameters:
+            parameters:
+              lr:
+                distribution: "log_uniform_values"
+                min: 0.0005
+                max: 0.01
+              weight_decay:
+                distribution: "log_uniform_values"
+                min: 0.000001
+                max: 0.01
+              adamw_lr:
+                distribution: "log_uniform_values"
+                min: 0.0001
+                max: 0.005
+              momentum:
+                values: [0.9, 0.95, 0.98]
+
+# NON sweepes, volontairement:
+#
+# - batch_size (262144, valeur de la baseline): confondu avec la troncature par max_time. Un
+#   batch 4x plus gros fait 4x moins de steps dans les memes 30 min, on classerait le debit et
+#   pas la qualite. A tester apres coup en 3 runs a budget en epoques, lr scale en sqrt(batch).
+# - neg_sampling_ratio (5): multiplie E = batch_size * (1 + ratio), donc l'empreinte memoire de
+#   la tete hadamard_mlp qui travaille par arete (E, D). Le sweeper deplacerait l'enveloppe
+#   memoire de toutes les combinaisons output_dim.
+# - neg_sampling_ratio val/test: le changer change la definition de mrr_trigger, les runs
+#   deviendraient incomparables entre eux et avec la baseline.
+# - callbacks: override_nested_dict remplace une liste en bloc, un override partiel ecraserait
+#   early_stopping et le model_checkpoint.
+# - conv_parameters: SAGEConv refuse `cached`; aggr/root_weight/project sont un axe separe.

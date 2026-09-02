@@ -31,7 +31,7 @@ data_parameters:
 model_parameters:
   task_type: link_prediction
   architecture_parameters:
-      architecture_type: gcn
+      architecture_type: sage
       input_dim: *data_dim
       hidden_dim: 128
       output_dim: 128
@@ -41,8 +41,7 @@ model_parameters:
       use_output_projection: false
       use_residual: false
       use_layer_norm: false
-      conv_parameters:
-        cached: true
+      # Pas de conv_parameters: SAGEConv n'accepte pas `cached` (specifique a GCNConv/SGConv).
 
   link_predictor_parameters:
     link_predictor_type: hadamard_mlp
@@ -84,11 +83,19 @@ model_parameters:
       parameters:
         threshold: 0.0
 
+  # Iso-hyperparametres avec gae_sage_coview_mdm_128.yml: adjust_lr_fn=match_rms_adamw permet a Muon
+  # de reutiliser le lr et le weight_decay tunes pour AdamW. weight_decay doit etre explicite,
+  # le defaut de torch.optim.Muon est 0.1.
+  # Split attendu: 8 tenseurs pour Muon (lin_l/lin_r des 3 SAGEConv + 2 couches du MLP),
+  # 7 pour AdamW (biais + tete de sortie (1, 128)).
   optimizer:
-    optimizer_type: adamw
+    optimizer_type: muon
     parameters:
       lr: 0.0035
       weight_decay: 0.002
+      adjust_lr_fn: match_rms_adamw
+      adamw_lr: 0.0035
+      adamw_weight_decay: 0.002
 
   scheduler:
     scheduler_type: cosine
@@ -108,7 +115,10 @@ callbacks:
         monitor: val/mrr_trigger
         mode: "max"
         save_top_k: 1
-        dirpath: /dbfs/tmp/nbraun/checkpoints/coview-mdm-128
+        dirpath: /dbfs/tmp/nbraun/checkpoints/coview-mdm-128-sage-muon
+    - callback_type: learning_rate_monitor
+      parameters:
+        logging_interval: epoch
 
 wandb_logger_parameters:
   entity: "neilbraunheinrich-national-university-of-singapore"
@@ -125,4 +135,3 @@ trainer_config:
   gradient_clip_val: 1.0
   check_val_every_n_epoch: 4
   limit_test_batches: 0
-  

@@ -1,7 +1,7 @@
 setup-linux:
 	sed -i -E '/"torch-(geometric|scatter|sparse)[^"]*",/d' pyproject.toml
 	uv sync &&\
-	uv pip install pyg_lib torch_scatter torch_sparse torch_cluster torch_spline_conv -f https://data.pyg.org/whl/torch-2.8.0+cu128.html &&\
+	uv pip install pyg_lib torch_scatter torch_sparse torch_cluster torch_spline_conv -f https://data.pyg.org/whl/torch-2.9.1+cu128.html &&\
 	uv add torch-geometric
 
 resetup-linux:
