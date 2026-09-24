@@ -10,14 +10,8 @@ from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.utilities.compile import _maybe_unwrap_optimized
 
 from fast_gnn_benchmark.models.link_prediction import LinkPredictionModel
-from fast_gnn_benchmark.models.node_classification import NodeClassificationModel
-from fast_gnn_benchmark.models.seal import SEALLinkPredictionModel
 from fast_gnn_benchmark.schemas.data_models import DataLoaderTypeChoices
-from fast_gnn_benchmark.schemas.model import (
-    LinkPredictionModelParameters,
-    NodeClassificationModelParameters,
-    TrainerParameters,
-)
+from fast_gnn_benchmark.schemas.model import LinkPredictionModelParameters, TrainerParameters
 
 
 def fix_seed(seed: int):
@@ -83,10 +77,10 @@ def get_trainer_parameters_from_config(
 
 
 def _configure_and_compile_model(
-    model: NodeClassificationModel | LinkPredictionModel | SEALLinkPredictionModel,
+    model: LinkPredictionModel,
     use_compiled_torch: bool,
     full_graph: bool,
-) -> NodeClassificationModel | LinkPredictionModel:
+) -> LinkPredictionModel:
     """Configure PyTorch Dynamo and compile the model if CUDA is available."""
     if use_compiled_torch:
         if torch.cuda.is_available():
@@ -99,52 +93,27 @@ def _configure_and_compile_model(
     return model  # type: ignore
 
 
-def get_model(
-    trainer_parameters: TrainerParameters,
-) -> NodeClassificationModel | LinkPredictionModel | SEALLinkPredictionModel:
-    match trainer_parameters.model_parameters.task_type:
-        case "node_classification":
-            assert isinstance(trainer_parameters.model_parameters, NodeClassificationModelParameters)
-            model = NodeClassificationModel(trainer_parameters.model_parameters)
-        case "link_prediction":
-            assert isinstance(trainer_parameters.model_parameters, LinkPredictionModelParameters)
-            if trainer_parameters.model_parameters.task_subtype == "sub_graph":
-                model = SEALLinkPredictionModel(trainer_parameters.model_parameters)
-            else:
-                model = LinkPredictionModel(trainer_parameters.model_parameters)
-
-        case _:
-            raise ValueError(f"Invalid task type: {trainer_parameters.model_parameters.task_type}")
+def get_model(trainer_parameters: TrainerParameters) -> LinkPredictionModel:
+    model_parameters = trainer_parameters.model_parameters
+    if not isinstance(model_parameters, LinkPredictionModelParameters):
+        raise ValueError(f"Invalid task type: {model_parameters.task_type}")
 
     return _configure_and_compile_model(
-        model,
+        LinkPredictionModel(model_parameters),
         trainer_parameters.compilation_parameters.use_compiled_torch,
         trainer_parameters.compilation_parameters.full_graph,
     )
 
 
-def load_model_from_checkpoint(
-    checkpoint_path: str,
-) -> NodeClassificationModel | LinkPredictionModel | SEALLinkPredictionModel:
-    checkpoint = torch.load(checkpoint_path, weights_only=False)
-    model_parameters = checkpoint["hyper_parameters"]["model_parameters"]
-    match model_parameters.task_type:
-        case "node_classification":
-            return NodeClassificationModel.load_from_checkpoint(checkpoint_path, weights_only=False)
-        case "link_prediction":
-            if getattr(model_parameters, "task_subtype", "whole_graph") == "sub_graph":
-                return SEALLinkPredictionModel.load_from_checkpoint(checkpoint_path, weights_only=False)
-            return LinkPredictionModel.load_from_checkpoint(checkpoint_path, weights_only=False)
-
-        case _:
-            raise ValueError(f"Invalid task type: {model_parameters.task_type}")
+def load_model_from_checkpoint(checkpoint_path: str) -> LinkPredictionModel:
+    return LinkPredictionModel.load_from_checkpoint(checkpoint_path, weights_only=False)
 
 
 def get_model_to_test(
     callbacks: list[L.Callback],
-    last_model: NodeClassificationModel | LinkPredictionModel | SEALLinkPredictionModel,
+    last_model: LinkPredictionModel,
     trainer_parameters: TrainerParameters,
-) -> NodeClassificationModel | LinkPredictionModel | SEALLinkPredictionModel:
+) -> LinkPredictionModel:
     for callback in callbacks:
         if isinstance(callback, ModelCheckpoint):
             best_model_path = callback.best_model_path
@@ -188,20 +157,6 @@ def get_wandb_logger(trainer_parameters: TrainerParameters) -> WandbLogger | Non
     # Upload the full config to wandb
     wandb_logger.experiment.config.update(trainer_parameters.model_dump())
 
-    # Add data to summary for easier visualization
-    if hasattr(trainer_parameters.data_parameters.train_data_loader_parameters, "num_parts"):
-        wandb_logger.experiment.summary["train/num_parts"] = (
-            trainer_parameters.data_parameters.train_data_loader_parameters.num_parts  # type: ignore
-        )
-    if hasattr(trainer_parameters.data_parameters.val_data_loader_parameters, "num_parts"):
-        wandb_logger.experiment.summary["val/num_parts"] = (
-            trainer_parameters.data_parameters.val_data_loader_parameters.num_parts  # type: ignore
-        )
-    if hasattr(trainer_parameters.data_parameters.test_data_loader_parameters, "num_parts"):
-        wandb_logger.experiment.summary["test/num_parts"] = (
-            trainer_parameters.data_parameters.test_data_loader_parameters.num_parts  # type: ignore
-        )
-
     return wandb_logger
 
 
@@ -210,7 +165,7 @@ def get_callbacks(trainer_parameters: TrainerParameters) -> list[L.Callback]:
 
 
 def check_test_batch(
-    model: NodeClassificationModel | LinkPredictionModel | SEALLinkPredictionModel,
+    model: LinkPredictionModel,
     test_loader: DataLoaderTypeChoices,
     device: str,
 ) -> None:
@@ -220,8 +175,7 @@ def check_test_batch(
         model.to(device)
         model.eval()
         for batch in test_loader:
-            batch = batch.to(device)
-            model.test_step(batch, 0)  # type: ignore
+            model.test_step(batch.to(device), 0)  # type: ignore
             break
 
     model.train()

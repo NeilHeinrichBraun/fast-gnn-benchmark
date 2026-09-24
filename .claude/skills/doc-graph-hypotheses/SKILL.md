@@ -1,6 +1,6 @@
 ---
 name: doc-graph-hypotheses
-description: Pour une fonction de graph_pipeline_prototype.ipynb, propose une docstring et les lignes correspondantes des deux tableaux de graph_pipeline_documentation.tex (Hypothèse métier / Si elle est fausse, et Mécanisme / Ce qui disparaît), précises et concises, calibrées sur pipeline_hypotheses.tex. À utiliser quand l'utilisateur colle une fonction du notebook et demande de la documenter, de proposer les hypothèses, ou de remplir le document étape par étape.
+description: Pour une fonction de graph_pipeline_prototype.ipynb, propose une docstring et les lignes correspondantes des deux tableaux de docs/graph_pipeline_documentation.tex (Hypothèse métier / Si elle est fausse, et Mécanisme / Ce qui disparaît), précises et concises, calibrées sur docs/pipeline_hypotheses.tex. À utiliser quand l'utilisateur colle une fonction du notebook et demande de la documenter, de proposer les hypothèses, ou de remplir le document étape par étape.
 ---
 
 # Documenter une fonction de graph_pipeline_prototype.ipynb
@@ -8,11 +8,11 @@ description: Pour une fonction de graph_pipeline_prototype.ipynb, propose une do
 Pour une fonction collée par l'utilisateur, produit trois choses : une docstring,
 des lignes proposées pour le tableau « Hypothèses métier », et des lignes proposées
 pour le tableau « Ce qui peut être exclu du graphe ». Le document cible est
-`graph_pipeline_documentation.tex` (tableaux `tab:hypotheses` et `tab:exclusions`).
+`docs/graph_pipeline_documentation.tex` (tableaux `tab:hypotheses` et `tab:exclusions`).
 
 ## Principe : proposer, pas insérer
 
-Ce skill **propose** dans la réponse — il ne modifie `graph_pipeline_documentation.tex`
+Ce skill **propose** dans la réponse — il ne modifie `docs/graph_pipeline_documentation.tex`
 que si l'utilisateur le demande explicitement ensuite. L'utilisateur valide ou corrige
 avant qu'une ligne devienne définitive.
 
@@ -75,9 +75,9 @@ cause, le nom de colonne), en `\code{}`. Le jargon à éviter, c'est le vocabula
 d'analyse abstrait qui n'apporte rien de vérifiable (« granularité », « idempotent »,
 « canonise ») — pas les noms d'opérations ou de colonnes du code, qui sont au
 contraire ce qui rend la ligne exploitable. Une à deux phrases courtes par cellule,
-au niveau de précision de `pipeline_hypotheses.tex`.
+au niveau de précision de `docs/pipeline_hypotheses.tex`.
 
-Calibrage — lignes H1/E1 réelles de `pipeline_hypotheses.tex` pour `get_customer`,
+Calibrage — lignes H1/E1 réelles de `docs/pipeline_hypotheses.tex` pour `get_customer`,
 la référence à reproduire :
 
 ```
@@ -119,7 +119,7 @@ conclure qu'il n'y a pas de ligne E.
 | Mécanisme | L'opération qui retire des lignes, en une phrase simple |
 | Ce qui disparaît | Ce qui est concrètement perdu (quels produits, quelles vues, quels clients) |
 
-Calibrage — ligne E1 réelle de `pipeline_hypotheses.tex` pour `get_customer` :
+Calibrage — ligne E1 réelle de `docs/pipeline_hypotheses.tex` pour `get_customer` :
 
 ```
 Mécanisme : jointure \code{inner} clients / publishers.
@@ -168,7 +168,7 @@ log (`grep -i overfull`, cf. étape 6) sur ces deux colonnes aussi, pas seulemen
 
 ## 5. Numérotation
 
-Avant de proposer les Id, lisez `graph_pipeline_documentation.tex` et repérez le
+Avant de proposer les Id, lisez `docs/graph_pipeline_documentation.tex` et repérez le
 plus grand `Hn` déjà présent dans le tableau `tab:hypotheses` et le plus grand `En`
 déjà présent dans `tab:exclusions` ; proposez la suite (`H{n+1}`, `E{n+1}`, …). Si le
 document est encore vide, commencez à `H1` / `E1`. Vérifiez aussi qu'aucune ligne
@@ -183,23 +183,23 @@ Trois blocs dans la réponse :
    disant qu'il n'y en a pas.
 3. Même chose pour « Ce qui peut être exclu du graphe ».
 
-N'éditez `graph_pipeline_documentation.tex` que si l'utilisateur le demande — dans ce
+N'éditez `docs/graph_pipeline_documentation.tex` que si l'utilisateur le demande — dans ce
 cas insérez juste avant `\end{longtable}` du tableau concerné, avec `\addlinespace`
 avant chaque nouvelle ligne sauf si le tableau est vide.
 
-`graph_pipeline_documentation.tex` ne charge **pas** `amsmath` (contrairement à
-`pipeline_hypotheses.tex`, qui elle le charge). `\land`, `\rightarrow`, l'indiçage
+`docs/graph_pipeline_documentation.tex` ne charge **pas** `amsmath` (contrairement à
+`docs/pipeline_hypotheses.tex`, qui elle le charge). `\land`, `\rightarrow`, l'indiçage
 simple (`$n$`, `$n(n-1)/2$`) fonctionnent en TeX de base ; `\binom{}{}`, `\emph`
 imbriqué dans certains contextes mathématiques ou tout autre symbole spécifique à
 amsmath causeront une erreur `Undefined control sequence`. Écrivez le calcul en
 notation simple (`n(n-1)/2` plutôt que `\binom{n}{2}`) au lieu d'ajouter le
 `\usepackage`.
 
-Dès que `graph_pipeline_documentation.tex` est modifié (une ou les deux tables),
+Dès que `docs/graph_pipeline_documentation.tex` est modifié (une ou les deux tables),
 recompilez-le immédiatement, sans attendre que l'utilisateur le demande :
 
 ```
-pdflatex -interaction=nonstopmode graph_pipeline_documentation.tex
+pdflatex -interaction=nonstopmode -output-directory=docs docs/graph_pipeline_documentation.tex
 ```
 
 Relancez une seconde fois si le log affiche un avertissement `Rerun` (« Label(s) may

@@ -5,19 +5,14 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "boto3>=1.35.0",
     "faiss-cpu>=1.9.0",
-    "gdown>=5.2.0",
     "ipykernel>=6.30.1",
     "jupyter>=1.1.1",
-    "matplotlib>=3.10.6",
-    "networkx>=3.5",
     "numpy>=2.3.2",
-    "ogb>=1.3.6",
-    "scikit-learn>=1.7.2",
-    "scipy>=1.16.1",
+    "pandas>=2.2.0",
     "setuptools>=80.9.0",
     "torch==2.9.1",
-    "tqdm>=4.67.1",
     "wandb>=0.21.3",
     "lightning>=2.5.5",
     "torch-geometric>=2.7.0",
@@ -27,6 +22,11 @@ dependencies = [
 dev = [
     # Linting & formatting
     "ruff==0.8.4",
+    # Tests
+    "pytest>=8.3.0",
+    # Fourni par le runtime Databricks en prod, requis en local pour tester le pipeline.
+    # A aligner sur la version Spark du cluster 0611-075408-z0otz8r1.
+    "pyspark>=3.5.0,<4.0.0",
 ]
 
 [tool.uv]

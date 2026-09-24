@@ -1,35 +1,11 @@
-from pydantic import BaseModel, Field, field_validator
-from torch_geometric.data import Dataset
-from torch_geometric.datasets import Amazon, Coauthor, Planetoid
-from torch_geometric.transforms import Compose
+from pydantic import BaseModel, field_validator
 
-from fast_gnn_benchmark.data.dataset.ogbl import FixLinkPropPredDataset
-from fast_gnn_benchmark.data.dataset.ogbn import OGBNDataset
-from fast_gnn_benchmark.data.dataset.ogbn_on_disk import OGBNDatasetOnDisk, OGBNDatasetOnRAM
-from fast_gnn_benchmark.data.dataset.pokec import PokecDataset
-from fast_gnn_benchmark.data.dataset.amazon_products import AmazonDataset
-from fast_gnn_benchmark.data.dataset.coview_mdm import CoViewMDMDataset 
-from fast_gnn_benchmark.data.dataset.seal import SEALDataset
-from fast_gnn_benchmark.data.dataset.split_strategies import random_split_dataset, resplit_planetoid_dataset
+from fast_gnn_benchmark.data.dataset.coview_mdm import CoViewMDMDataset
 from fast_gnn_benchmark.data.link_dataloader import LinkLoader
 from fast_gnn_benchmark.data.trigger_dataloader import TriggerLoader
-from fast_gnn_benchmark.data.seal_dataloader import SEALDataLoader
-from fast_gnn_benchmark.data.node_dataloaders import (
-    BaseDataLoader,
-    ClusterLoaderWrapper,
-    DropEdgeLoader,
-    NeighborLoaderWrapper,
-    OnDiskMemmapsRandomNodeLoader,
-    OptimizedRandomNodeLoader,
-    PPRNodeLoader,
-    RandomNodeLoaderWithReplacement,
-    RandomNodeLoaderWrapper,
-    RandomWalkLoaderWrapper,
-)
 from fast_gnn_benchmark.data.utils import (
     add_self_loops_and_remove_duplicate_edges,
     print_data_properties_link_prediction,
-    print_data_properties_node_classification,
     remove_duplicate_edges,
     remove_self_loops,
     to_undirected,
@@ -39,42 +15,15 @@ from fast_gnn_benchmark.schemas.dataset_models import (
     DataLoaderType,
     DatasetType,
     SplitType,
-    TransformType,
 )
 
-DatasetTypeChoices = (
-    Dataset
-    | OGBNDataset
-    | PokecDataset
-    | OGBNDatasetOnDisk
-    | OGBNDatasetOnRAM
-    | Amazon
-    | AmazonDataset
-    | Coauthor
-    | FixLinkPropPredDataset
-    | CoViewMDMDataset
-)
+DatasetTypeChoices = CoViewMDMDataset
 
-DataLoaderTypeChoices = (
-    BaseDataLoader
-    | RandomNodeLoaderWrapper
-    | OptimizedRandomNodeLoader
-    | OnDiskMemmapsRandomNodeLoader
-    | NeighborLoaderWrapper
-    | RandomWalkLoaderWrapper
-    | ClusterLoaderWrapper
-    | PPRNodeLoader
-    | RandomNodeLoaderWithReplacement
-    | DropEdgeLoader
-    | LinkLoader
-    | SEALDataLoader
-    | TriggerLoader
-)
+DataLoaderTypeChoices = LinkLoader | TriggerLoader
 
 
 class DataParameters(BaseModel):
     dataset_type: DatasetType
-    transforms: list[TransformType] = Field(default_factory=list[TransformType])
     to_undirected: bool = False
     add_self_loops_and_remove_duplicate_edges: bool = False
     remove_duplicate_edges: bool = False
@@ -84,39 +33,14 @@ class DataParameters(BaseModel):
     val_data_loader_parameters: DataLoaderParametersChoices
     test_data_loader_parameters: DataLoaderParametersChoices
 
-    @field_validator("train_data_loader_parameters", mode="before")
+    @field_validator(
+        "train_data_loader_parameters",
+        "val_data_loader_parameters",
+        "test_data_loader_parameters",
+        mode="before",
+    )
     @classmethod
-    def convert_train_data_loader_type(cls, v):
-        if isinstance(v, dict) and "data_loader_type" in v:
-            data_loader_type = v["data_loader_type"]
-            if isinstance(data_loader_type, str):
-                try:
-                    v = v.copy()  # Don't modify the original
-                    v["data_loader_type"] = DataLoaderType(data_loader_type)
-                except ValueError:
-                    raise ValueError(
-                        f"Invalid data_loader_type: {data_loader_type}. Must be one of: {[e.value for e in DataLoaderType]}"
-                    ) from None
-        return v
-
-    @field_validator("val_data_loader_parameters", mode="before")
-    @classmethod
-    def convert_val_data_loader_type(cls, v):
-        if isinstance(v, dict) and "data_loader_type" in v:
-            data_loader_type = v["data_loader_type"]
-            if isinstance(data_loader_type, str):
-                try:
-                    v = v.copy()  # Don't modify the original
-                    v["data_loader_type"] = DataLoaderType(data_loader_type)
-                except ValueError:
-                    raise ValueError(
-                        f"Invalid data_loader_type: {data_loader_type}. Must be one of: {[e.value for e in DataLoaderType]}"
-                    ) from None
-        return v
-
-    @field_validator("test_data_loader_parameters", mode="before")
-    @classmethod
-    def convert_test_data_loader_type(cls, v):
+    def convert_data_loader_type(cls, v):
         if isinstance(v, dict) and "data_loader_type" in v:
             data_loader_type = v["data_loader_type"]
             if isinstance(data_loader_type, str):
@@ -130,92 +54,19 @@ class DataParameters(BaseModel):
         return v
 
     def get_dataset(self) -> DatasetTypeChoices:
-        transforms = Compose([transform.get() for transform in self.transforms])
-
         match self.dataset_type:
-            case DatasetType.CORA:
-                dataset = Planetoid(root="./datasets/Planetoid", name="Cora", transform=transforms)
-                dataset = resplit_planetoid_dataset(dataset)
-
-            case DatasetType.CITESEER:
-                dataset = Planetoid(root="./datasets/Planetoid", name="CiteSeer", transform=transforms)
-                dataset = resplit_planetoid_dataset(dataset)
-
-            case DatasetType.PUBMED:
-                dataset = Planetoid(root="./datasets/Planetoid", name="PubMed", transform=transforms)
-                dataset = resplit_planetoid_dataset(dataset)
-
-            case DatasetType.AMAZON_COMPUTER:
-                dataset = Amazon(root="./datasets/Amazon", name="Computers", transform=transforms)
-                dataset = random_split_dataset(dataset)
-
-            case DatasetType.CO_AUTHOR_CS:
-                dataset = Coauthor(root="./datasets/Coauthor", name="CS", transform=transforms)
-                dataset = random_split_dataset(dataset)
-
-            case DatasetType.CO_AUTHOR_PHYSICS:
-                dataset = Coauthor(root="./datasets/Coauthor", name="Physics", transform=transforms)
-                dataset = random_split_dataset(dataset)
-
-            case DatasetType.AMAZON_PHOTO:
-                dataset = Amazon(root="./datasets/Amazon", name="Photo", transform=transforms)
-                dataset = random_split_dataset(dataset)
-
-            case DatasetType.OGBN_PRODUCTS:
-                dataset = OGBNDataset(root="./datasets/ogbn/", name="ogbn-products", transform=transforms)
-
-            case DatasetType.OGBN_ARXIV:
-                dataset = OGBNDataset(root="./datasets/ogbn/", name="ogbn-arxiv", transform=transforms)
-
-            case DatasetType.OGBN_PAPERS100M:
-                dataset = OGBNDataset(root="./datasets/ogbn/", name="ogbn-papers100M", transform=transforms)
-
-            case DatasetType.OGBN_PAPERS100M_ON_DISK:
-                dataset = OGBNDatasetOnDisk(root="./datasets/ogbn/", name="ogbn-papers100M", transform=transforms)
-
-            case DatasetType.OGBN_PAPERS100M_ON_RAM:
-                dataset = OGBNDatasetOnRAM(root="./datasets/ogbn/", name="ogbn-papers100M", transform=transforms)
-
-            case DatasetType.POKEC:
-                dataset = PokecDataset(root="./datasets/pokec", transform=transforms)
-
-            case DatasetType.AMAZON_PRODUCTS:
-                dataset = AmazonDataset(root="./datasets/amazon")
-
             case DatasetType.COVIEW_MDM:
-                dataset = CoViewMDMDataset(bucket= "mirakl-data-science-tmp2", s3_key= "nbraun/datasets/coview-mdm/data.pt")
+                dataset = CoViewMDMDataset(
+                    bucket="mirakl-data-science-tmp2", s3_key="nbraun/datasets/coview-mdm/data.pt"
+                )
 
             case DatasetType.COVIEW_MDM_PROTOTYPE:
-                dataset = CoViewMDMDataset(bucket= "mirakl-data-science-tmp2", s3_key= "nbraun/datasets/coview-mdm/data_prototype.pt")
-
-            case DatasetType.OGBL_PPA:
-                dataset = FixLinkPropPredDataset(root="./datasets/ogbl/", name="ogbl-ppa", transform=transforms)
-                dataset.data.x = dataset.data.x.float()
-
-            case DatasetType.OGBL_COLLAB:
-                dataset = FixLinkPropPredDataset(root="./datasets/ogbl/", name="ogbl-collab", transform=transforms)
-
-            case DatasetType.OGBL_DDI:
-                dataset = FixLinkPropPredDataset(root="./datasets/ogbl/", name="ogbl-ddi", transform=transforms)
-
-            case DatasetType.OGBL_CITATION2:
-                dataset = FixLinkPropPredDataset(root="./datasets/ogbl/", name="ogbl-citation2", transform=transforms)
-
-            case DatasetType.OGBL_WIKIKG2:
-                dataset = FixLinkPropPredDataset(root="./datasets/ogbl/", name="ogbl-wikikg2", transform=transforms)
-
-            case DatasetType.OGBL_BIOKG:
-                dataset = FixLinkPropPredDataset(root="./datasets/ogbl/", name="ogbl-biokg", transform=transforms)
-
-            case DatasetType.OGBL_VESSEL:
-                dataset = FixLinkPropPredDataset(root="./datasets/ogbl/", name="ogbl-vessel", transform=transforms)
+                dataset = CoViewMDMDataset(
+                    bucket="mirakl-data-science-tmp2", s3_key="nbraun/datasets/coview-mdm/data_prototype.pt"
+                )
 
             case _:
                 raise ValueError(f"Invalid dataset type: {self}")
-
-        if self.dataset_type == DatasetType.OGBN_PAPERS100M_ON_DISK:
-            print("Skip processing for On Disk Dataset")
-            return dataset
 
         assert not (
             self.add_self_loops_and_remove_duplicate_edges and self.remove_duplicate_edges
@@ -237,127 +88,14 @@ class DataParameters(BaseModel):
             print(f"Removing self-loops for {self.dataset_type}")
             dataset[0].edge_index = remove_self_loops(dataset[0].edge_index)  # type: ignore
 
-        if self.dataset_type not in [
-            DatasetType.OGBL_PPA,
-            DatasetType.OGBL_COLLAB,
-            DatasetType.OGBL_DDI,
-            DatasetType.OGBL_CITATION2,
-            DatasetType.OGBL_WIKIKG2,
-            DatasetType.OGBL_BIOKG,
-            DatasetType.OGBL_VESSEL,
-            DatasetType.AMAZON_PRODUCTS,
-            DatasetType.COVIEW_MDM,
-            DatasetType.COVIEW_MDM_PROTOTYPE,
-        ]:
-            print_data_properties_node_classification(dataset[0])  # type: ignore
-        else:
-            print_data_properties_link_prediction(dataset)  # type: ignore
+        print_data_properties_link_prediction(dataset)
 
         return dataset
 
-    def get_data_loader(  # noqa: PLR0911
+    def get_data_loader(
         self, dataset: DatasetTypeChoices, split_type: SplitType, data_loader_parameters: DataLoaderParametersChoices
     ) -> DataLoaderTypeChoices:
         match data_loader_parameters.data_loader_type:
-            case DataLoaderType.BASE_DATA_LOADER:
-                return BaseDataLoader(
-                    dataset,
-                    split_type=split_type,
-                    num_workers=data_loader_parameters.num_workers,
-                    pin_memory=data_loader_parameters.pin_memory,
-                    persistent_workers=data_loader_parameters.persistent_workers,
-                )
-            case DataLoaderType.RANDOM_NODE_LOADER_WITH_REPLACEMENT:
-                return RandomNodeLoaderWithReplacement(
-                    dataset,
-                    proportion=data_loader_parameters.proportion,
-                    on_device=data_loader_parameters.on_device,
-                    pin_memory=data_loader_parameters.pin_memory,
-                    split_type=split_type,
-                )
-
-            case DataLoaderType.RANDOM_NODE_LOADER:
-                return RandomNodeLoaderWrapper(
-                    dataset,
-                    num_workers=data_loader_parameters.num_workers,
-                    num_parts=data_loader_parameters.num_parts,
-                    shuffle=data_loader_parameters.shuffle,
-                    pin_memory=data_loader_parameters.pin_memory,
-                    persistent_workers=data_loader_parameters.persistent_workers,
-                    split_type=split_type,
-                )
-
-            case DataLoaderType.OPTIMIZED_RANDOM_NODE_LOADER:
-                return OptimizedRandomNodeLoader(
-                    dataset,
-                    data_loader_parameters.num_parts,
-                    data_loader_parameters.on_device,
-                    data_loader_parameters.pin_memory,
-                    split_type,
-                )
-
-            case DataLoaderType.ON_DISK_MEMMAPS_RANDOM_NODE_LOADER:
-                return OnDiskMemmapsRandomNodeLoader(
-                    dataset,
-                    data_loader_parameters.num_parts,
-                    data_loader_parameters.use_blocks,
-                    data_loader_parameters.block_size,
-                    data_loader_parameters.num_workers,
-                    split_type,
-                )
-
-            case DataLoaderType.NEIGHBOR_LOADER:
-                return NeighborLoaderWrapper(
-                    dataset,
-                    num_neighbors=data_loader_parameters.num_neighbors,
-                    batch_size=data_loader_parameters.batch_size,
-                    shuffle=data_loader_parameters.shuffle,
-                    num_workers=data_loader_parameters.num_workers,
-                    pin_memory=data_loader_parameters.pin_memory,
-                    persistent_workers=data_loader_parameters.persistent_workers,
-                    split_type=split_type,
-                    on_device=data_loader_parameters.on_device,
-                )
-
-            case DataLoaderType.RANDOM_WALK_LOADER:
-                return RandomWalkLoaderWrapper(
-                    dataset,
-                    walk_length=data_loader_parameters.walk_length,
-                    num_seeds=data_loader_parameters.num_seeds,
-                    compute_normalization_stats=data_loader_parameters.compute_normalization_stats,
-                    num_stats_samples=data_loader_parameters.num_stats_samples,
-                    split_type=split_type,
-                )
-
-            case DataLoaderType.CLUSTER_LOADER:
-                return ClusterLoaderWrapper(
-                    dataset,
-                    num_clusters=data_loader_parameters.num_clusters,
-                    num_parts=data_loader_parameters.num_parts,
-                    shuffle=data_loader_parameters.shuffle,
-                    split_type=split_type,
-                )
-
-            case DataLoaderType.PPR_NODE_LOADER:
-                return PPRNodeLoader(
-                    dataset,
-                    num_parts=data_loader_parameters.num_parts,
-                    node_budget=data_loader_parameters.node_budget,
-                    alpha=data_loader_parameters.alpha,
-                    ppr_iterations=data_loader_parameters.ppr_iterations,
-                    on_device=data_loader_parameters.on_device,
-                    pin_memory=data_loader_parameters.pin_memory,
-                    split_type=split_type,
-                )
-
-            case DataLoaderType.DROP_EDGE_LOADER:
-                return DropEdgeLoader(
-                    dataset,
-                    drop_edge_ratio=data_loader_parameters.drop_edge_ratio,
-                    on_device=data_loader_parameters.on_device,
-                    pin_memory=data_loader_parameters.pin_memory,
-                    split_type=split_type,
-                )
             case DataLoaderType.LINK_LOADER:
                 return LinkLoader(
                     dataset,
@@ -381,28 +119,6 @@ class DataParameters(BaseModel):
                     split_type=split_type,
                     use_val_edges_as_input=data_loader_parameters.use_val_edges_as_input,
                     neg_sampling_ratio=data_loader_parameters.neg_sampling_ratio,
-                )
-
-            case DataLoaderType.SEAL_LOADER:
-                seal_split = {"train": "train", "val": "valid", "test": "test"}[split_type.value]
-                seal_dataset = SEALDataset(
-                    dataset,
-                    split=seal_split,
-                    num_hops=data_loader_parameters.num_hops,
-                    node_labeling=data_loader_parameters.node_labeling,
-                    use_features=data_loader_parameters.use_features,
-                    max_nodes_per_hop=data_loader_parameters.max_nodes_per_hop,
-                    root=data_loader_parameters.cache_dir,
-                    num_train_samples=data_loader_parameters.num_train_samples,
-                    use_cpp_extension=data_loader_parameters.use_cpp_extension,
-                )
-                return SEALDataLoader(
-                    seal_dataset,
-                    batch_size=data_loader_parameters.batch_size,
-                    split_type=split_type,
-                    shuffle=data_loader_parameters.shuffle,
-                    num_workers=data_loader_parameters.num_workers,
-                    pin_memory=data_loader_parameters.pin_memory,
                 )
 
             case _:

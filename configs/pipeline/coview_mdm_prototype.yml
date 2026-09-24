@@ -1,0 +1,29 @@
+# Reproduit le run de graph_pipeline_prototype.ipynb.
+# Le suffixe _prototype isole ces artefacts de data.pt / node2idx.json, que model_test.ipynb
+# et model_stat.ipynb lisent encore avec l'ancien encodage exec2code.
+
+seed: 42
+
+customer_shortname: maisons-du-monde
+
+start_date: 2026-01-01
+end_date: 2026-05-01
+cutoff_train_days_before_end: 30
+cutoff_val_days_before_end: 15
+session_timeout: 1800
+
+symmetric_edges: true
+top_k: 12
+prod_table_splits:
+  - val
+
+# Laisse a null au premier run : le 190091 des configs d'entrainement est une valeur morte
+# (l'ancre *num_nodes n'est referencee nulle part) et n'a jamais decrit le dataset prototype.
+# A renseigner avec le num_nodes du manifest une fois un run de reference valide.
+expected_num_nodes: null
+
+artifacts:
+  bucket: mirakl-data-science-tmp2
+  prefix: nbraun/datasets/coview-mdm
+  suffix: _prototype
+  staging_dir: /dbfs/tmp/nbraun/datasets/coview-mdm-prototype

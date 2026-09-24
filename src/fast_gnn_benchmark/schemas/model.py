@@ -11,19 +11,19 @@ from pydantic import BaseModel, Field, field_validator
 
 from fast_gnn_benchmark.metrics.base_metrics import (
     MRR,
-    MRR_trigger,
-    HitRate_trigger,
-    BinaryAccuracy_trigger,
-    Precision_trigger,
-    Recall_trigger,
     BinaryAccuracy,
+    BinaryAccuracy_trigger,
     BinaryDistribution,
     HitRate,
+    HitRate_trigger,
+    MRR_trigger,
     OptimizedF1Score,
     OptimizedMetric,
     OptimizedMultiClassAccuracy,
     OptimizedPrecision,
     OptimizedRecall,
+    Precision_trigger,
+    Recall_trigger,
 )
 from fast_gnn_benchmark.models.optimizers import MuonWithAuxAdamW, split_muon_parameters
 from fast_gnn_benchmark.schemas.data_models import DataParameters
@@ -237,13 +237,8 @@ class ArchitectureType(Enum):
     GAT = "gat"
     SGC = "sgc"
     SGC2 = "sgc2"  # SGC with Dropout, Layer Norm and Skip Connections
-    GCNII = "gcnii"
     MLP = "mlp"
-    MLP_ADJACENCY = "mlp_adjacency"
-    PMLP = "pmlp"
     SGFORMER = "sgformer"
-    POLYNORMER = "polynormer"
-    DGCNN = "dgcnn"
 
 
 class ArchitectureParameters(BaseModel):
@@ -274,34 +269,12 @@ class SGCParameters(ArchitectureParameters):
     num_layers: int
 
 
-class GCNIIParameters(ArchitectureParameters):
-    architecture_type: Literal[ArchitectureType.GCNII] = ArchitectureType.GCNII
-    num_layers: int
-    alpha: float
-    theta: float
-    dropout: float
-
-
 class MLPParameters(ArchitectureParameters):
     architecture_type: Literal[ArchitectureType.MLP] = ArchitectureType.MLP
     num_layers: int
     dropout: float = 0.0
     use_layer_norm: bool = False
     use_residual: bool = False
-
-
-class MLPAdjacencyParameters(ArchitectureParameters):
-    architecture_type: Literal[ArchitectureType.MLP_ADJACENCY] = ArchitectureType.MLP_ADJACENCY
-    num_layers: int
-    use_layer_norm: bool = False
-    use_residual: bool = False
-    dropout: float = 0.0
-
-
-class PMLPParameters(ArchitectureParameters):
-    architecture_type: Literal[ArchitectureType.PMLP] = ArchitectureType.PMLP
-    num_layers: int
-    dropout: float = 0.0
 
 
 class SGFormerParameters(ArchitectureParameters):
@@ -334,53 +307,10 @@ class SGFormerParameters(ArchitectureParameters):
         return v
 
 
-class PolyNormerParameters(ArchitectureParameters):
-    architecture_type: Literal[ArchitectureType.POLYNORMER] = ArchitectureType.POLYNORMER
-    local_layers: int
-    global_layers: int
-    in_dropout: float
-    local_dropout: float
-    global_dropout: float
-    num_heads: int
-    beta: float = 0.9
-    pre_norm: bool = False
-    qk_shared: bool = False
-
-class DGCNNParameters(ArchitectureParameters):
-    architecture_type: Literal[ArchitectureType.DGCNN] = ArchitectureType.DGCNN
-    num_layers: int
-    k: int = 30
-    inner_gnn_type: Literal[ArchitectureType.GCN, ArchitectureType.SAGE, ArchitectureType.GAT]
-    conv1d_channels: list[int]
-    conv1d_kernel_size: int = 5
-    mlp_hidden_dim: int = 128
-    dropout: float = 0.5
-
-    @field_validator("inner_gnn_type", mode="before")
-    @classmethod
-    def convert_inner_gnn_type(cls, v):
-        if isinstance(v, str):
-            try:
-                return ArchitectureType(v)
-            except ValueError:
-                raise ValueError(
-                    f"Invalid inner_gnn_type: {v}. Must be one of: ['gcn', 'sage', 'gat']"
-                ) from None
-        return v
-
-
 # -------------------- Base model --------------------
 
 ArchitectureParametersChoices = Annotated[
-    GNNParameters
-    | MLPParameters
-    | MLPAdjacencyParameters
-    | SGFormerParameters
-    | PolyNormerParameters
-    | SGCParameters
-    | PMLPParameters
-    | GCNIIParameters
-    | DGCNNParameters,
+    GNNParameters | MLPParameters | SGFormerParameters | SGCParameters,
     Field(discriminator="architecture_type"),
 ]
 
@@ -417,12 +347,6 @@ class BaseModelParameters(BaseModel):
 
 
 # -------------------- Task-specific models --------------------
-
-
-class NodeClassificationModelParameters(BaseModelParameters):
-    task_type: Literal["node_classification"] = "node_classification"
-
-
 class LinkPredictorType(Enum):
     COSINE_SIMILARITY = "cosine_similarity"
     HADAMARD_MLP = "hadamard_mlp"
@@ -436,7 +360,6 @@ class LinkPredictorParameters(BaseModel):
 
 class LinkPredictionModelParameters(BaseModelParameters):
     task_type: Literal["link_prediction"] = "link_prediction"
-    task_subtype: Literal["whole_graph", "sub_graph"] = "whole_graph"
     link_predictor_parameters: LinkPredictorParameters
     embedder_parameters: EmbedderParameters = Field(
         default_factory=lambda: EmbedderParameters(
@@ -502,10 +425,7 @@ class CompilationParameters(BaseModel):
 class TrainerParameters(BaseModel):
     seed: int | None = None
     data_parameters: DataParameters
-    model_parameters: Annotated[
-        NodeClassificationModelParameters | LinkPredictionModelParameters,
-        Field(discriminator="task_type"),
-    ]
+    model_parameters: LinkPredictionModelParameters
     callbacks: list[CallbackParameters]
     wandb_logger_parameters: WandbLoggerParameters | None = None
     compilation_parameters: CompilationParameters = Field(default_factory=CompilationParameters)

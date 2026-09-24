@@ -1,6 +1,6 @@
 ---
 name: doc-model-hypotheses
-description: Pour une fonction de model_test_prototype_clean.ipynb, propose une docstring et les lignes correspondantes des deux tableaux de model_test_prototype_documentation.tex (Hypothèse métier / Si elle est fausse, et Mécanisme / Ce qui disparaît), précises et concises, calibrées sur l'exemple de run_inference ci-dessous. À utiliser quand l'utilisateur colle une fonction de model_test_prototype_clean, ou demande de la documenter, de proposer les hypothèses, ou de remplir le document étape par étape.
+description: Pour une fonction de model_test_prototype_clean.ipynb, propose une docstring et les lignes correspondantes des deux tableaux de docs/model_test_prototype_documentation.tex (Hypothèse métier / Si elle est fausse, et Mécanisme / Ce qui disparaît), précises et concises, calibrées sur l'exemple de run_inference ci-dessous. À utiliser quand l'utilisateur colle une fonction de model_test_prototype_clean, ou demande de la documenter, de proposer les hypothèses, ou de remplir le document étape par étape.
 ---
 
 # Documenter une fonction de model_test_prototype_clean.ipynb
@@ -8,7 +8,7 @@ description: Pour une fonction de model_test_prototype_clean.ipynb, propose une 
 Pour une fonction collée par l'utilisateur, produit trois choses : une docstring,
 des lignes proposées pour le tableau « Hypothèses métier », et des lignes proposées
 pour le tableau « Ce qui peut être exclu de l'évaluation ». Le document cible est
-`model_test_prototype_documentation.tex` (tableaux `tab:hypotheses` et `tab:exclusions`).
+`docs/model_test_prototype_documentation.tex` (tableaux `tab:hypotheses` et `tab:exclusions`).
 
 C'est le pendant, pour `model_test_prototype_clean.ipynb`, de ce que
 `doc-graph-hypotheses` fait pour `graph_pipeline_prototype.ipynb` — même structure de
@@ -19,7 +19,7 @@ mélangez jamais leurs fonctions ou leurs documents.
 ## Principe : proposer, pas insérer
 
 Ce skill **propose** dans la réponse — il ne modifie
-`model_test_prototype_documentation.tex` que si l'utilisateur le demande explicitement
+`docs/model_test_prototype_documentation.tex` que si l'utilisateur le demande explicitement
 ensuite. L'utilisateur valide ou corrige avant qu'une ligne devienne définitive.
 
 ## 1. Lire le code, ne rien inventer
@@ -101,8 +101,8 @@ d'opérations ou de champs du code, qui sont au contraire ce qui rend la ligne
 exploitable.
 
 **Une phrase par cellule, deux au grand maximum.** Le calibrage n'est pas
-`pipeline_hypotheses.tex` ici (le document démarre vide), mais la longueur cible est
-la même : regardez la taille des cellules H1/E1 de `graph_pipeline_documentation.tex`
+`docs/pipeline_hypotheses.tex` ici (le document démarre vide), mais la longueur cible est
+la même : regardez la taille des cellules H1/E1 de `docs/graph_pipeline_documentation.tex`
 (`get_customer`) et visez la même longueur. Signes à couper avant de livrer une
 ligne :
 - une clause conditionnelle emboîtée (« si X était nécessaire, alors Y ») au lieu
@@ -203,7 +203,7 @@ français plutôt que de citer l'expression complète.
 
 ## 5. Numérotation
 
-Avant de proposer les Id, lisez `model_test_prototype_documentation.tex` et repérez
+Avant de proposer les Id, lisez `docs/model_test_prototype_documentation.tex` et repérez
 le plus grand `Hn` déjà présent dans le tableau `tab:hypotheses` et le plus grand `En`
 déjà présent dans `tab:exclusions` ; proposez la suite (`H{n+1}`, `E{n+1}`, …). Le
 document démarre vide : commencez à `H1` / `E1` s'il n'y a encore aucune ligne.
@@ -219,21 +219,21 @@ Trois blocs dans la réponse :
    disant qu'il n'y en a pas.
 3. Même chose pour « Ce qui peut être exclu de l'évaluation ».
 
-N'éditez `model_test_prototype_documentation.tex` que si l'utilisateur le demande —
+N'éditez `docs/model_test_prototype_documentation.tex` que si l'utilisateur le demande —
 dans ce cas insérez juste avant `\end{longtable}` du tableau concerné, avec
 `\addlinespace` avant chaque nouvelle ligne sauf si le tableau est vide.
 
-`model_test_prototype_documentation.tex` ne charge **pas** `amsmath`. `\land`,
+`docs/model_test_prototype_documentation.tex` ne charge **pas** `amsmath`. `\land`,
 `\rightarrow`, l'indiçage simple (`$n$`) fonctionnent en TeX de base ; `\binom{}{}`,
 `\emph` imbriqué dans certains contextes mathématiques ou tout autre symbole
 spécifique à amsmath causeront une erreur `Undefined control sequence`. Écrivez le
 calcul en notation simple au lieu d'ajouter le `\usepackage`.
 
-Dès que `model_test_prototype_documentation.tex` est modifié (une ou les deux
+Dès que `docs/model_test_prototype_documentation.tex` est modifié (une ou les deux
 tables), recompilez-le immédiatement, sans attendre que l'utilisateur le demande :
 
 ```
-pdflatex -interaction=nonstopmode model_test_prototype_documentation.tex
+pdflatex -interaction=nonstopmode -output-directory=docs docs/model_test_prototype_documentation.tex
 ```
 
 Relancez une seconde fois si le log affiche un avertissement `Rerun` (« Label(s) may

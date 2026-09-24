@@ -493,6 +493,27 @@ resources:
             - pypi:
                 package: boto3
 
+    # Construction du dataset, en amont de tous les jobs d'entrainement : lit les tables Unity
+    # Catalog et ecrit data_prototype.pt, node2idx, exec_mappings et les parquets de comparaison
+    # prod sur S3. Le suffixe _prototype vient de la config, rien n'ecrase les artefacts partages.
+    coview_mdm_dataset:
+      name: coview-mdm-dataset
+      tasks:
+        - task_key: build_dataset
+          existing_cluster_id: 0722-144046-v3tzsowd
+          spark_python_task:
+            python_file: scripts/build_dataset.py
+            parameters:
+              - "--config_file"
+              - "/Workspace/Users/neil.braun@mirakl.com/.bundle/fast-gnn-benchmark/dev/files/configs/pipeline/coview_mdm_prototype.yml"
+          libraries:
+            - pypi:
+                package: torch
+            - pypi:
+                package: torch_geometric
+            - pypi:
+                package: boto3
+
 targets:
   dev:
     default: true

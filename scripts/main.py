@@ -57,28 +57,17 @@ if __name__ == "__main__":
     from fast_gnn_benchmark.utils import recursive_defaultdict
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config_file", "-c", type=str, required=False, default="configs/ogbn_products/sage.yml")
+    parser.add_argument(
+        "--config_file", "-c", type=str, required=False, default="configs/link_prediction/gae_gcn_coview_mdm_128.yml"
+    )
     parser.add_argument("--epochs", type=int, required=False, default=None)
     parser.add_argument("--lr", type=float, required=False, default=None)
-    parser.add_argument("--train_parts", type=int, required=False, default=None)
-    parser.add_argument("--val_test_parts", type=int, required=False, default=None)
-    parser.add_argument("--drop_edge_ratio", type=float, required=False, default=None)
     parser.add_argument("--seed", type=int, required=False, default=None)
     parser.add_argument("--tag", type=str, required=False, default=None)
     parser.add_argument("--batch_size", type=int, required=False, default=None)
     args = parser.parse_args()
 
     override_dict = recursive_defaultdict()
-    if args.train_parts is not None:
-        override_dict["data_parameters"]["train_data_loader_parameters"]["num_parts"] = args.train_parts
-
-    if args.drop_edge_ratio is not None:
-        override_dict["data_parameters"]["train_data_loader_parameters"]["drop_edge_ratio"] = args.drop_edge_ratio
-
-    if args.val_test_parts is not None:
-        override_dict["data_parameters"]["val_data_loader_parameters"]["num_parts"] = args.val_test_parts
-        override_dict["data_parameters"]["test_data_loader_parameters"]["num_parts"] = args.val_test_parts
-
     if args.lr is not None:
         override_dict["model_parameters"]["optimizer"]["parameters"]["lr"] = args.lr
 

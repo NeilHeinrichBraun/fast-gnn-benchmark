@@ -1,5 +1,4 @@
 global_config.yml
-slurm_logs/
 .build_version
 *.html
 coverage/
