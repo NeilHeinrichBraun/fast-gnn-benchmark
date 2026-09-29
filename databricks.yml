@@ -514,6 +514,125 @@ resources:
             - pypi:
                 package: boto3
 
+    # Inference, en aval du dataset et de l'entrainement : score tous les triggers du split val et
+    # ecrit model_results_{output_name}_val_prototype.parquet et son inference_manifest sur S3.
+    # Un job par strategie ; cluster GPU pour le forward complet du graphe.
+    coview_mdm_inference_exhaustive:
+      name: coview-mdm-inference-exhaustive
+      tasks:
+        - task_key: inference
+          existing_cluster_id: 0608-153856-5bzteuq5
+          spark_python_task:
+            python_file: scripts/run_inference.py
+            parameters:
+              - "--config_file"
+              - "/Workspace/Users/neil.braun@mirakl.com/.bundle/fast-gnn-benchmark/dev/files/configs/inference/coview_mdm_prototype_exhaustive.yml"
+          libraries:
+            - pypi:
+                package: torch
+            - pypi:
+                package: torch_geometric
+            - pypi:
+                package: boto3
+
+    coview_mdm_inference_faiss_flat:
+      name: coview-mdm-inference-faiss-flat
+      tasks:
+        - task_key: inference
+          existing_cluster_id: 0608-153856-5bzteuq5
+          spark_python_task:
+            python_file: scripts/run_inference.py
+            parameters:
+              - "--config_file"
+              - "/Workspace/Users/neil.braun@mirakl.com/.bundle/fast-gnn-benchmark/dev/files/configs/inference/coview_mdm_prototype_faiss_flat.yml"
+          libraries:
+            - pypi:
+                package: torch
+            - pypi:
+                package: torch_geometric
+            - pypi:
+                package: boto3
+            - pypi:
+                package: faiss-cpu
+
+    coview_mdm_inference_faiss_ivf:
+      name: coview-mdm-inference-faiss-ivf
+      tasks:
+        - task_key: inference
+          existing_cluster_id: 0608-153856-5bzteuq5
+          spark_python_task:
+            python_file: scripts/run_inference.py
+            parameters:
+              - "--config_file"
+              - "/Workspace/Users/neil.braun@mirakl.com/.bundle/fast-gnn-benchmark/dev/files/configs/inference/coview_mdm_prototype_faiss_ivf.yml"
+          libraries:
+            - pypi:
+                package: torch
+            - pypi:
+                package: torch_geometric
+            - pypi:
+                package: boto3
+            - pypi:
+                package: faiss-cpu
+
+    # Statistiques, en aval de l'inference : compare model_results aux deux variantes prod
+    # (display, relevance). Relit la config du job d'inference evalue, qui fixe output_name,
+    # split et artefacts. Ecrit product_metadata, trigger_metrics et stats_*.json sur S3.
+    # Spark seul, pas de GPU : meme cluster que le dataset.
+    coview_mdm_stats_exhaustive:
+      name: coview-mdm-stats-exhaustive
+      tasks:
+        - task_key: stats
+          existing_cluster_id: 0722-144046-v3tzsowd
+          spark_python_task:
+            python_file: scripts/compute_stats.py
+            parameters:
+              - "--config_file"
+              - "/Workspace/Users/neil.braun@mirakl.com/.bundle/fast-gnn-benchmark/dev/files/configs/inference/coview_mdm_prototype_exhaustive.yml"
+          libraries:
+            - pypi:
+                package: torch
+            - pypi:
+                package: torch_geometric
+            - pypi:
+                package: boto3
+
+    coview_mdm_stats_faiss_flat:
+      name: coview-mdm-stats-faiss-flat
+      tasks:
+        - task_key: stats
+          existing_cluster_id: 0722-144046-v3tzsowd
+          spark_python_task:
+            python_file: scripts/compute_stats.py
+            parameters:
+              - "--config_file"
+              - "/Workspace/Users/neil.braun@mirakl.com/.bundle/fast-gnn-benchmark/dev/files/configs/inference/coview_mdm_prototype_faiss_flat.yml"
+          libraries:
+            - pypi:
+                package: torch
+            - pypi:
+                package: torch_geometric
+            - pypi:
+                package: boto3
+
+    coview_mdm_stats_faiss_ivf:
+      name: coview-mdm-stats-faiss-ivf
+      tasks:
+        - task_key: stats
+          existing_cluster_id: 0722-144046-v3tzsowd
+          spark_python_task:
+            python_file: scripts/compute_stats.py
+            parameters:
+              - "--config_file"
+              - "/Workspace/Users/neil.braun@mirakl.com/.bundle/fast-gnn-benchmark/dev/files/configs/inference/coview_mdm_prototype_faiss_ivf.yml"
+          libraries:
+            - pypi:
+                package: torch
+            - pypi:
+                package: torch_geometric
+            - pypi:
+                package: boto3
+
 targets:
   dev:
     default: true

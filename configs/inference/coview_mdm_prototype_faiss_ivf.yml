@@ -1,0 +1,29 @@
+# Reproduit la seconde moitie de model_test_prototype_ann_clean.ipynb : IVF par categorie au-dessus
+# de min_pool_for_ann, flat en dessous. L'index exact est construit aussi, pour le controle torch et
+# le recall ivf vs exact, tous deux ecrits dans le manifest.
+
+customer_shortname: maisons-du-monde
+split: val
+top_k: 12
+output_name: gcn_mlp_cosine_ivf
+
+checkpoint:
+  dir: /dbfs/tmp/nbraun/checkpoints/coview-mdm-mlp-cosine
+  path: latest
+
+retrieval:
+  strategy: faiss_ivf
+  min_pool_for_ann: 2048
+  nprobe: 8
+  ivf_seed: 42
+  reference_sample_size: 500
+  reference_atol: 1.0e-5
+  # Laisse a null au premier run : le recall est mesure et ecrit dans le manifest sans faire
+  # echouer le job. A fixer une fois une valeur de reference observee.
+  min_recall_vs_flat: null
+
+artifacts:
+  bucket: mirakl-data-science-tmp2
+  prefix: nbraun/datasets/coview-mdm
+  suffix: _prototype
+  staging_dir: /dbfs/tmp/nbraun/datasets/coview-mdm-prototype

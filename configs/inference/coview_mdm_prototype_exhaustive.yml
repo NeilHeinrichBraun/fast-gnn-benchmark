@@ -1,0 +1,23 @@
+# Reproduit model_test_prototype_clean.ipynb : scoring exhaustif par le classifieur, seule
+# strategie compatible avec hadamard_mlp. Ecrit model_results_gcn_prototype_exhaustive_val_prototype.parquet.
+
+customer_shortname: maisons-du-monde
+split: val
+top_k: 12
+output_name: gcn_prototype_exhaustive
+
+checkpoint:
+  dir: /dbfs/tmp/nbraun/checkpoints/coview-mdm-prototype
+  path: latest
+
+retrieval:
+  strategy: exhaustive
+  batch_size: 8192
+
+# Meme bloc que configs/pipeline/coview_mdm_prototype.yml : les entrees sont relues avec le suffixe
+# qui les a ecrites.
+artifacts:
+  bucket: mirakl-data-science-tmp2
+  prefix: nbraun/datasets/coview-mdm
+  suffix: _prototype
+  staging_dir: /dbfs/tmp/nbraun/datasets/coview-mdm-prototype

@@ -1,0 +1,26 @@
+# Reproduit la premiere moitie de model_test_prototype_ann_clean.ipynb : index faiss exact par
+# categorie sur head.project(), controle contre un produit scalaire torch.
+# Exige une tete cosine_similarity ou mlp_cosine.
+#
+# Le checkpoint coview-mdm-mlp-cosine a ete entraine sur data.pt (dataset_type: coview-mdm) et est
+# evalue ici sur le graphe prototype, comme dans le notebook.
+
+customer_shortname: maisons-du-monde
+split: val
+top_k: 12
+output_name: gcn_mlp_cosine_flat
+
+checkpoint:
+  dir: /dbfs/tmp/nbraun/checkpoints/coview-mdm-mlp-cosine
+  path: latest
+
+retrieval:
+  strategy: faiss_flat
+  reference_sample_size: 500
+  reference_atol: 1.0e-5
+
+artifacts:
+  bucket: mirakl-data-science-tmp2
+  prefix: nbraun/datasets/coview-mdm
+  suffix: _prototype
+  staging_dir: /dbfs/tmp/nbraun/datasets/coview-mdm-prototype

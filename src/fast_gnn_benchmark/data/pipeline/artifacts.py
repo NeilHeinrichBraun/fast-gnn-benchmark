@@ -93,6 +93,36 @@ def save_manifest(manifest: dict[str, Any], parameters: ArtifactParameters) -> s
     return _save_json(manifest, parameters.manifest_filename, parameters)
 
 
+def save_json(payload: dict[str, Any], filename: str, parameters: ArtifactParameters) -> str:
+    """Sauvegarde un JSON nommé par ArtifactParameters : manifest d'inférence, statistiques.
+
+    Args:
+        payload: Contenu sérialisable en JSON.
+        filename: Nom du fichier, issu de ArtifactParameters.
+        parameters: Destination des artefacts.
+
+    Returns:
+        L'URI S3 du fichier écrit.
+    """
+    return _save_json(payload, filename, parameters)
+
+
+def load_node_mapping(parameters: ArtifactParameters) -> dict[int, int]:
+    """Relit la correspondance internalId -> index de nœud écrite par save_node_mapping.
+
+    Les clés JSON sont des chaînes : la conversion en int est obligatoire pour que les lookups
+    par internalId (bigint côté Spark) trouvent leur nœud.
+
+    Args:
+        parameters: Emplacement des artefacts.
+
+    Returns:
+        La correspondance internalId -> index.
+    """
+    body = boto3.client("s3").get_object(Bucket=parameters.bucket, Key=parameters.key(parameters.node_mapping_filename))
+    return {int(node_id): int(idx) for node_id, idx in json.loads(body["Body"].read()).items()}
+
+
 def write_parquet(df: DataFrame, filename: str, parameters: ArtifactParameters) -> str:
     """Écrit un DataFrame Spark directement sur S3, en écrasant l'existant.
 

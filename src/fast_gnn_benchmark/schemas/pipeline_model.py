@@ -53,6 +53,24 @@ class ArtifactParameters(BaseModel):
     def prod_results_filename(self, split: Split) -> str:
         return f"prod_results_{split}{self.suffix}.parquet"
 
+    def model_results_filename(self, split: Split, name: str) -> str:
+        return f"model_results_{name}_{split}{self.suffix}.parquet"
+
+    def model_rows_staging_filename(self, split: Split, name: str) -> str:
+        return f"_staging_model_rows_{name}_{split}{self.suffix}.parquet"
+
+    def inference_manifest_filename(self, split: Split, name: str) -> str:
+        return f"inference_manifest_{name}_{split}{self.suffix}.json"
+
+    def product_metadata_filename(self, split: Split, name: str) -> str:
+        return f"product_metadata_{name}_{split}{self.suffix}.parquet"
+
+    def trigger_metrics_filename(self, split: Split, name: str) -> str:
+        return f"trigger_metrics_{name}_{split}{self.suffix}.parquet"
+
+    def stats_filename(self, split: Split, name: str) -> str:
+        return f"stats_{name}_{split}{self.suffix}.json"
+
 
 class GraphPipelineParameters(BaseModel):
     """Configuration du pipeline de construction du graphe de co-vue.
