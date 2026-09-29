@@ -1,0 +1,45 @@
+[project]
+name = "ds-dashboard-gnn-model-test"  
+dynamic = ["version"]
+description = "Dashboard that allows to visualise what the GNN outputs for a specific trigger"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "streamlit",
+    "pandas>=2,<3",
+    "boto3",
+    "awswrangler",
+]
+authors = [
+    { name = "Neil Heinrich Braun", email = "neil.braun@mirakl.com" },
+]
+
+[tool.uv]
+package = true
+
+[[tool.uv.index]]
+name = "mirakl"
+url = "https://mirakl.jfrog.io/artifactory/api/pypi/mirakl-python/simple/"
+default = false
+
+[[tool.uv.index]]
+name = "python-stable"
+url = "https://mirakl.jfrog.io/artifactory/api/pypi/python-stable/simple/"
+publish-url = "https://mirakl.jfrog.io/artifactory/api/pypi/python-stable"
+explicit = true
+
+[[tool.uv.index]]
+name = "python-dirty"
+url = "https://mirakl.jfrog.io/artifactory/api/pypi/python-dirty/simple/"
+publish-url = "https://mirakl.jfrog.io/artifactory/api/pypi/python-dirty"
+explicit = true
+
+[build-system]
+requires = ["pdm-backend"]
+build-backend = "pdm.backend"
+
+[tool.pdm.version]
+source = "scm"
+tag_filter = "gnn_model_test/*"
+tag_regex = "^gnn_model_test/v(?P<version>.+)$"
+fallback_version = "0.0.0"
